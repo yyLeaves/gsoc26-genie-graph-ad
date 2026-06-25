@@ -1,0 +1,22 @@
+# data and training outputs (tens of GB, regenerable via pipeline.sh / train_*)
+dataset/*
+runs/*
+!dataset/.gitkeep
+!runs/.gitkeep
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# jupyter
+.ipynb_checkpoints/
+
+# latex build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
