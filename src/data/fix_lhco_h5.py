@@ -1,27 +1,37 @@
-import sys
+"""One-off repair for old Pandas HDF5 files with byte-valued attributes."""
+
+import argparse
 
 import numpy as np
 import tables
 
 
-def fix(path: str) -> int:
-    f = tables.open_file(path, "a")
+def decode_byte_attrs(path: str) -> int:
+    """Decode byte / numpy-bytes HDF5 attributes to UTF-8 strings in place."""
+    handle = tables.open_file(path, "a")
     try:
-        n = 0
-        for node in f.walk_nodes("/"):
+        count = 0
+        for node in handle.walk_nodes("/"):
             attrs = node._v_attrs
             for name in list(attrs._f_list("all")):
-                v = attrs[name]
-                if isinstance(v, (bytes, np.bytes_)):
-                    attrs[name] = bytes(v).decode("utf-8")
-                    n += 1
+                value = attrs[name]
+                if isinstance(value, (bytes, np.bytes_)):
+                    attrs[name] = bytes(value).decode("utf-8")
+                    count += 1
     finally:
-        f.close()
-    return n
+        handle.close()
+    return count
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Decode byte-valued attributes in an LHCO-style HDF5 file."
+    )
+    parser.add_argument("h5_path", help="Path to the HDF5 file to repair")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    path = (sys.argv[1] if len(sys.argv) > 1
-            else "develop/dataset/lhco/events_anomalydetection.h5")
-    n = fix(path)
-    print(f"decoded {n} byte-attrs to str in {path}")
+    args = _parse_args()
+    n = decode_byte_attrs(args.h5_path)
+    print(f"decoded {n} byte-attrs to str in {args.h5_path}")

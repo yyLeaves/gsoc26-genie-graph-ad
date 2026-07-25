@@ -9,11 +9,21 @@ from .dataset import JetDataset
 
 
 def shard_iter(ds: JetDataset, indices: np.ndarray, batch_size: int,
-               shuffle_shards: bool = True, shuffle_within: bool = True,
+               shuffle_shards: bool = False, shuffle_within: bool = False,
                rng=None, device=None):
     """Yield Batches, loading one shard at a time (one sequential read each,
-    not per batch). With an rng, shard order and within-shard order are shuffled.
+    not per batch). Shuffling is explicit and requires an rng.
     """
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+    indices = np.asarray(indices, dtype=np.int64)
+    if indices.ndim != 1:
+        raise ValueError(f"indices must be one-dimensional, got {indices.shape}")
+    if indices.size and ((indices < 0).any() or (indices >= len(ds)).any()):
+        raise IndexError(f"indices must lie in [0, {len(ds)})")
+    if (shuffle_shards or shuffle_within) and rng is None:
+        raise ValueError("shuffling requires an explicit rng")
+
     # flat indices → shard_id → local positions
     shard_to_local: dict = defaultdict(list)
     for idx in indices:
@@ -33,8 +43,6 @@ def shard_iter(ds: JetDataset, indices: np.ndarray, batch_size: int,
         for i in range(0, len(locs), batch_size):
             items = [shard[j] for j in locs[i : i + batch_size]]
             batch = Batch.from_data_list(items)
-            # raw shards bypass __getitem__, so apply feature_cols here
-            ds.select_features(batch)
             if device is not None:
                 batch = batch.to(device)
             yield batch
@@ -46,6 +54,8 @@ def prefetch(batches, depth: int = 4):
     Collation + shard loading are CPU-bound and the model is tiny, so without
     this the GPU idles waiting for batches.
     """
+    if depth <= 0:
+        raise ValueError(f"prefetch depth must be positive, got {depth}")
     q: queue.Queue = queue.Queue(maxsize=depth)
     END = object()
     stop = threading.Event()

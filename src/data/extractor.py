@@ -7,82 +7,151 @@ import numpy as np
 import torch
 from torch_geometric.data import Data
 
-from .graph import compute_node_features
-from .kinematics import (Jet, dijet_mass, p4_components, relative_coords,
-                         to_pseudojets)
+from .features import FEATURE_DIM, compute_node_features
+from .kinematics import Jet, dijet_mass, relative_coords, to_pseudojets
 
-__all__ = ["JetConfig", "JetExtractor", "cluster_jets", "truncated",
-           "jet_to_data", "recluster_subjets", "JET_RADIUS"]
+__all__ = ["JetConfig", "JetExtractor", "jet_to_data",
+           "JET_RADIUS", "JET_SELECTIONS"]
 
 JET_RADIUS = 1.0
-JET_DEF = fastjet.JetDefinition(fastjet.antikt_algorithm, JET_RADIUS)
-# exclusive-kT reclustering into a fixed # of subjets (Araz et al. 2506.19920);
-# R large enough that exclusive clustering completes without beam merging.
-KT_DEF = fastjet.JetDefinition(fastjet.kt_algorithm, JET_RADIUS)
+JET_SELECTIONS = ("leading_pt", "min_pt_all")
+_MAX_SELECTED_JETS = 2
+_JET_DEFINITION = fastjet.JetDefinition(fastjet.antikt_algorithm, JET_RADIUS)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class JetConfig:
-    """Jet selection / feature settings."""
-    features: str = "log_phys"
-    min_jet_pt: float = 200.0
-    min_particles: int = 3
-    max_nodes: int | None = None
-    n_subjets: int | None = None   # exclusive-kT recluster to this many subjets
+    """Jet-selection and node-feature specification. All fields are required."""
+
+    features: str
+    min_jet_pt: float
+    min_particles: int
+    jet_selection: str
+    require_two_jets: bool
+
+    def __post_init__(self) -> None:
+        if self.features not in FEATURE_DIM:
+            raise ValueError(
+                f"features must be one of {sorted(FEATURE_DIM)}, "
+                f"got {self.features!r}"
+            )
+        if self.min_jet_pt < 0:
+            raise ValueError(
+                f"min_jet_pt must be non-negative, got {self.min_jet_pt}"
+            )
+        if self.min_particles <= 0:
+            raise ValueError(
+                f"min_particles must be positive, got {self.min_particles}"
+            )
+        if self.jet_selection not in JET_SELECTIONS:
+            raise ValueError(
+                f"jet_selection must be one of {list(JET_SELECTIONS)}, "
+                f"got {self.jet_selection!r}"
+            )
 
 
-def recluster_subjets(jet: Jet, n_subjets: int) -> Jet:
-    """Exclusive-kT recluster (E-scheme) into <= n_subjets subjets; return
-    (pT, y, φ) pT-descending. Jets with <= n_subjets constituents unchanged.
+def _pseudojets_by_event(data: np.ndarray) -> ak.Array:
+    """Convert padded ``(pT, eta, phi)`` slots to event-wise pseudojets."""
+    pt, eta, phi = data[..., 0], data[..., 1], data[..., 2]
+    active = pt > 0
+    particles_per_event = active.sum(axis=1)
+    return ak.unflatten(
+        to_pseudojets(pt[active], eta[active], phi[active]),
+        particles_per_event,
+    )
 
-    Araz et al. (2506.19920) "fixed number of subjets": fixes node count so a
-    graph AE can't separate signal by multiplicity instead of substructure.
-    Subjets are massive (E-scheme) → angular coord is rapidity y, not η.
+
+def _select_constituents(
+    cluster_sequence,
+    cfg: JetConfig,
+) -> tuple[ak.Array, np.ndarray | None]:
+    """Select up to two jets and return their constituents.
+
+    ``min_pt_all`` applies the threshold to every returned jet. ``leading_pt``
+    applies it only to the leading jet and returns a mask for restoring events
+    rejected by that requirement.
     """
-    pt, eta, phi = jet
-    if len(pt) <= n_subjets:
-        return jet
-    px, py, pz, E = p4_components(pt, eta, phi)
-    pjs = [fastjet.PseudoJet(float(a), float(b), float(c), float(d))
-           for a, b, c, d in zip(px, py, pz, E)]
-    sub = fastjet.ClusterSequence(pjs, KT_DEF).exclusive_jets(n_subjets)
-    s_pt = np.array([s.pt() for s in sub])
-    s_y = np.array([s.rap() for s in sub])
-    s_phi = np.array([s.phi_std() for s in sub])   # φ in (-π, π]
-    order = np.argsort(-s_pt)                       # hardest-first
-    return s_pt[order], s_y[order], s_phi[order]
+    if cfg.jet_selection == "min_pt_all":
+        jets = cluster_sequence.inclusive_jets(min_pt=cfg.min_jet_pt)
+        constituents = cluster_sequence.constituents(min_pt=cfg.min_jet_pt)
+        jet_pt = np.sqrt(jets["px"]**2 + jets["py"]**2)
+        descending_order = ak.argsort(jet_pt, axis=1, ascending=False)
+        constituents = constituents[descending_order][:, :_MAX_SELECTED_JETS]
+        return constituents, None
+
+    jets = cluster_sequence.inclusive_jets()
+    constituents = cluster_sequence.constituents()
+    jet_pt = np.sqrt(jets["px"]**2 + jets["py"]**2)
+    descending_order = ak.argsort(jet_pt, axis=1, ascending=False)
+    constituents = constituents[descending_order][:, :_MAX_SELECTED_JETS]
+    ordered_jet_pt = jet_pt[descending_order]
+    leading_jet_pt = ak.fill_none(ak.firsts(ordered_jet_pt, axis=1), -np.inf)
+    selected_events = ak.to_numpy(leading_jet_pt >= cfg.min_jet_pt)
+    return constituents[selected_events], selected_events
 
 
-def truncated(jet: Jet, max_nodes: int | None) -> Jet:
-    """Keep the max_nodes hardest constituents (arrays are pT-descending)."""
-    return tuple(a[:max_nodes] for a in jet)
+def _constituents_to_event_jets(constituents: ak.Array) -> list[list[Jet]]:
+    """Decode selected FastJet constituents with batched NumPy conversion."""
+    jets_per_event = ak.to_numpy(ak.num(constituents, axis=1))
+    flattened_jets = ak.flatten(constituents, axis=1)
+    constituents_per_jet = ak.to_numpy(ak.num(flattened_jets, axis=1))
+    if len(constituents_per_jet) == 0:
+        return [[] for _ in jets_per_event]
+
+    flattened_constituents = ak.flatten(flattened_jets, axis=1)
+    px, py, pz = (
+        ak.to_numpy(flattened_constituents[field])
+        for field in ("px", "py", "pz")
+    )
+    constituent_pt = np.sqrt(px**2 + py**2)
+    constituent_eta = np.arcsinh(pz / (constituent_pt + 1e-10))
+    constituent_phi = np.arctan2(py, px)
+
+    jet_boundaries = np.cumsum(constituents_per_jet)[:-1]
+    jets = []
+    for pt, eta, phi in zip(
+        np.split(constituent_pt, jet_boundaries),
+        np.split(constituent_eta, jet_boundaries),
+        np.split(constituent_phi, jet_boundaries),
+    ):
+        descending_order = np.argsort(-pt)
+        jets.append((
+            pt[descending_order],
+            eta[descending_order],
+            phi[descending_order],
+        ))
+
+    event_boundaries = np.concatenate(([0], np.cumsum(jets_per_event)))
+    return [
+        jets[start:stop]
+        for start, stop in zip(event_boundaries[:-1], event_boundaries[1:])
+    ]
 
 
 def jet_to_data(jet: Jet, label: int, jet_idx: int, mjj: float,
-                features: str, event_id: int | None = None) -> Data:
+                features: str, event_id: int) -> Data:
     """Convert one jet's constituent arrays to a PyG Data object."""
     pt, eta, phi = jet
     d_eta, d_phi = relative_coords(pt, eta, phi)
-    g = Data(
+    return Data(
         x=torch.tensor(compute_node_features(pt, eta, phi, mode=features),
                        dtype=torch.float),
         pos=torch.tensor(np.stack([d_eta, d_phi], axis=1), dtype=torch.float),
-        # raw pT (pT-sorted), kept so step 2 builds (θ, k_T, z) edge features
-        # regardless of node-feature mode
+        # Absolute kinematics for edge features / subjet reclustering.
         pt=torch.tensor(pt, dtype=torch.float),
+        eta=torch.tensor(eta, dtype=torch.float),
+        phi=torch.tensor(phi, dtype=torch.float),
         y=torch.tensor([label], dtype=torch.long),
         jet_idx=torch.tensor([jet_idx], dtype=torch.long),
         mjj=torch.tensor([mjj], dtype=torch.float),
+        event_id=torch.tensor([event_id], dtype=torch.long),
     )
-    if event_id is not None:
-        g.event_id = torch.tensor([event_id], dtype=torch.long)
-    return g
 
 
 class JetExtractor:
     """Events → per-jet PyG Data objects; all settings read from one JetConfig."""
 
-    def __init__(self, cfg: JetConfig = JetConfig()):
+    def __init__(self, cfg: JetConfig):
         self.cfg = cfg
 
     def cluster_event(self, particles: np.ndarray) -> list[Jet]:
@@ -95,85 +164,63 @@ class JetExtractor:
         Yields each event's up-to-2 leading jets, pT-descending, constituents
         pT-sorted (truncation and Laman rely on hardest-first).
         """
-        pt, eta, phi = data[..., 0], data[..., 1], data[..., 2]
-        mask = pt > 0
-        counts = mask.sum(axis=1)
-        p4 = ak.unflatten(to_pseudojets(pt[mask], eta[mask], phi[mask]),
-                          counts)
+        pseudojets = _pseudojets_by_event(data)
+        cluster_sequence = fastjet.ClusterSequence(
+            pseudojets, _JET_DEFINITION)
+        constituents, selected_event_mask = _select_constituents(
+            cluster_sequence, self.cfg)
+        selected_events = _constituents_to_event_jets(constituents)
 
-        cs = fastjet.ClusterSequence(p4, JET_DEF)
-        # inclusive_jets/constituents align only at the SAME min_pt; come back
-        # pT-ascending → sort to pick leading jets
-        jets = cs.inclusive_jets(min_pt=self.cfg.min_jet_pt)
-        consts = cs.constituents(min_pt=self.cfg.min_jet_pt)
-        jet_pt = np.sqrt(jets["px"]**2 + jets["py"]**2)
-        leading = ak.argsort(jet_pt, axis=1, ascending=False)
-        consts = consts[leading][:, :2]
+        if selected_event_mask is None:
+            yield from selected_events
+            return
 
-        # flatten chunk to numpy ONCE (per-jet awkward→numpy would dominate
-        # runtime), then slice back into jets
-        njets = ak.to_numpy(ak.num(consts, axis=1))
-        flat_jets = ak.flatten(consts, axis=1)
-        ncons = ak.to_numpy(ak.num(flat_jets, axis=1))
-        flat = ak.flatten(flat_jets, axis=1)
-        px, py, pz = (ak.to_numpy(flat[f]) for f in ("px", "py", "pz"))
-        c_pt = np.sqrt(px**2 + py**2)
-        c_eta = np.arcsinh(pz / (c_pt + 1e-10))
-        c_phi = np.arctan2(py, px)
-
-        bounds = np.cumsum(ncons)[:-1]
-        jet_list = []
-        for p, e, f in zip(np.split(c_pt, bounds), np.split(c_eta, bounds),
-                           np.split(c_phi, bounds)):
-            order = np.argsort(-p)           # hardest-first
-            jet_list.append((p[order], e[order], f[order]))
-
-        pos = 0
-        for nj in njets:
-            yield jet_list[pos:pos + nj]
-            pos += nj
+        selected_event_iter = iter(selected_events)
+        for is_selected in selected_event_mask:
+            yield next(selected_event_iter) if is_selected else []
 
     def event_jets(self, jets: list[Jet], label: int,
-                   event_id: int | None = None) -> Iterator[Data]:
-        """Apply min_particles / max_nodes and convert one event's jets.
+                   event_id: int) -> Iterator[Data]:
+        """Apply min_particles and convert one event's selected jets.
 
-        mjj uses full constituents (before subjet reclustering); per-node repr
-        uses subjets when cfg.n_subjets is set.
+        ``mjj`` is the dijet mass of the two selected jets when both exist,
+        including cases where only one later survives ``min_particles``.
+        Single-jet events get ``mjj=0``.
         """
         cfg = self.cfg
-        mjj = dijet_mass(*jets) if len(jets) == 2 else 0.0
-        for ji, jet in enumerate(jets):
-            if len(jet[0]) >= cfg.min_particles:
-                # subjets already fix node count; max_nodes too would break the
-                # fixed-count guarantee
-                if cfg.n_subjets is not None:
-                    jet = recluster_subjets(jet, cfg.n_subjets)
-                else:
-                    jet = truncated(jet, cfg.max_nodes)
-                yield jet_to_data(jet, label, ji, mjj, cfg.features, event_id)
+        usable = [(ji, jet) for ji, jet in enumerate(jets)
+                  if len(jet[0]) >= cfg.min_particles]
+        if cfg.require_two_jets and len(usable) != 2:
+            return
+        if len(jets) >= 2:
+            mjj = dijet_mass(jets[0], jets[1])
+        else:
+            mjj = 0.0
+        for ji, jet in usable:
+            yield jet_to_data(jet, label, ji, mjj, cfg.features, event_id)
 
     def from_chunks(self, chunks: Iterator[tuple[np.ndarray, np.ndarray]],
                     ) -> Iterator[Data]:
-        """Batched path: one clustering call per chunk."""
         event_id = 0
         for labels, data in chunks:
-            for label, jets in zip(labels, self.cluster_chunk(data)):
+            if len(labels) != len(data):
+                raise ValueError(
+                    "chunk labels and events must have the same length, got "
+                    f"{len(labels)} labels and {len(data)} events"
+                )
+            for label, jets in zip(
+                labels,
+                self.cluster_chunk(data),
+                strict=True,
+            ):
                 yield from self.event_jets(jets, int(label), event_id)
                 event_id += 1
 
     def from_events(self, events: Iterator[tuple[int, np.ndarray]],
                     ) -> Iterator[Data]:
-        """Per-event reference path: same output as from_chunks."""
         for event_id, (label, particles) in enumerate(events):
             yield from self.event_jets(self.cluster_event(particles), label,
                                        event_id)
 
     def __repr__(self) -> str:
         return f"JetExtractor({self.cfg})"
-
-
-def cluster_jets(pt, eta, phi, ptmin: float) -> list[Jet]:
-    """Cluster ONE event (anti-kT); up to 2 leading jets, pT-descending.
-    Convenience for tests/notebooks."""
-    particles = np.stack([pt, eta, phi], axis=1)
-    return JetExtractor(JetConfig(min_jet_pt=ptmin)).cluster_event(particles)
