@@ -1,174 +1,145 @@
-import json
-from pathlib import Path
+from dataclasses import dataclass
 
 import numpy as np
 import torch
-from torch_geometric.data import Batch
 
-from src.eval.metrics import auc_score, compute_sic, signal_eff_at_bkg_eff
-from src.models import NodeGraphAE, EdgeGraphAE
-
-
-def load_model(checkpoint, edge_dim, device):
-    """Rebuild model from the sibling config.json + load weights.
-
-    `edge_dim` is kept for old configs; new runs persist it in config.json so a
-    checkpoint is self-contained.
-    """
-    checkpoint = Path(checkpoint)
-    cfg = json.loads((checkpoint.parent / "config.json").read_text())["model"]
-    mtype, in_dim = cfg["type"], cfg["in_dim"]
-    if mtype in {"edgeae", "relae"}:
-        model = EdgeGraphAE(in_dim=in_dim, edge_dim=cfg.get("edge_dim", edge_dim),
-                           hidden_dim=cfg["hidden_dim"],
-                           latent_dim=cfg["latent_dim"],
-                           edge_weight=cfg.get("edge_weight", 1.0),
-                           aggr=cfg.get("aggr", "mean"))
-    else:
-        model = NodeGraphAE(in_dim=in_dim, backbone=cfg["backbone"],
-                        hidden_dim=cfg["hidden_dim"],
-                        latent_dim=cfg["latent_dim"],
-                        use_bn=cfg.get("use_bn", True))
-    state = torch.load(checkpoint, map_location=device, weights_only=True)
-    try:
-        model.load_state_dict(state)
-    except RuntimeError as exc:
-        details = {
-            "type": mtype,
-            "in_dim": in_dim,
-            "edge_dim": cfg.get("edge_dim", edge_dim),
-            "hidden_dim": cfg.get("hidden_dim"),
-            "latent_dim": cfg.get("latent_dim"),
-            "use_bn": cfg.get("use_bn", True),
-            "edge_weight": cfg.get("edge_weight", 1.0),
-            "aggr": cfg.get("aggr", "mean"),
-        }
-        raise RuntimeError(
-            f"Failed to load checkpoint {checkpoint} with model config "
-            f"{details}. The checkpoint and config.json likely describe "
-            "different model architectures."
-        ) from exc
-    return model.to(device).eval()
-
-
-@torch.no_grad()
-def score_jets(model, ds, device, batch_size=2048, indices=None):
-    """Return one anomaly score per jet graph. Kept for debugging/tests; AD
-    metrics use event-level score_dataset below."""
-    idx = list(range(len(ds))) if indices is None else sorted(int(i) for i in indices)
-    scores = []
-    for start in range(0, len(idx), batch_size):
-        items = [ds[i] for i in idx[start:start + batch_size]]
-        batch = Batch.from_data_list(items).to(device)
-        scores.append(model.anomaly_score(batch).cpu().numpy())
-    return np.concatenate(scores)
-
+from src.data.iterate import prefetch, shard_iter
 
 EVENT_SCORE_AGGREGATIONS = ("sum", "mean", "max", "min", "pt_weighted")
 
 
-def _event_score_arrays(jet_scores, event_ids, labels, jet_strengths=None,
-                        aggregation: str = "sum"):
-    """Aggregate jet scores to event-level arrays.
+@dataclass(frozen=True)
+class EventScores:
+    scores: np.ndarray
+    labels: np.ndarray
+    event_ids: np.ndarray
 
-    aggregation:
-      - sum: score(event)=Σ score(jet), matching the reference repo.
-      - mean: score(event)=mean_j score(jet), sum normalized by selected jets.
-      - max: score(event)=max_j score(jet), only the most anomalous jet counts.
-      - min: score(event)=min_j score(jet), all selected jets must be anomalous.
-      - pt_weighted: score(event)=Σ w_j score(jet), w_j=jet_pt/Σ_event jet_pt.
-    """
+
+def _scoring_indices(ds, indices, batch_size: int) -> np.ndarray:
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+    idx = (
+        np.arange(len(ds), dtype=np.int64)
+        if indices is None
+        else np.array(sorted(int(i) for i in indices), dtype=np.int64)
+    )
+    if idx.size == 0:
+        raise ValueError("scoring requires at least one jet")
+    if np.any(np.diff(idx) == 0):
+        raise ValueError("scoring indices must be unique")
+    if idx[0] < 0 or idx[-1] >= len(ds):
+        raise IndexError(f"scoring indices must lie in [0, {len(ds)})")
+    return idx
+
+
+def _require_two_jets(ds, indices: np.ndarray) -> None:
+    if not ds.meta["selection"]["require_two_jets"]:
+        return
+    event_ids = np.asarray(ds.event_ids, dtype=np.int64)[indices]
+    jet_idx = np.asarray(ds.jet_idx, dtype=np.int64)[indices]
+    unique_events, counts = np.unique(event_ids, return_counts=True)
+    if np.any(counts != 2):
+        bad = unique_events[counts != 2]
+        raise ValueError(
+            "strict two-jet scoring requires exactly two jets per event; "
+            f"{bad.size:,} event(s) violate this, examples={bad[:5].tolist()}"
+        )
+    order = np.lexsort((jet_idx, event_ids))
+    pairs = jet_idx[order].reshape(-1, 2)
+    valid = (pairs[:, 0] == 0) & (pairs[:, 1] == 1)
+    if not valid.all():
+        bad = unique_events[~valid]
+        raise ValueError(
+            "strict two-jet scoring requires jet_idx={{0,1}} once per event; "
+            f"{bad.size:,} event(s) violate this, examples={bad[:5].tolist()}"
+        )
+
+
+def graph_pt_sums(batch) -> torch.Tensor:
+    sums = torch.zeros(
+        batch.num_graphs, dtype=batch.pt.dtype, device=batch.pt.device)
+    return sums.scatter_add_(0, batch.batch, batch.pt).cpu()
+
+
+def aggregate_event_scores(
+    jet_scores,
+    event_ids,
+    labels,
+    jet_strengths=None,
+    aggregation: str = "sum",
+) -> EventScores:
     if aggregation not in EVENT_SCORE_AGGREGATIONS:
         raise ValueError(
             f"aggregation must be one of {EVENT_SCORE_AGGREGATIONS}, "
-            f"got {aggregation!r}")
+            f"got {aggregation!r}"
+        )
     if aggregation == "pt_weighted" and jet_strengths is None:
         raise ValueError("pt_weighted event scoring requires jet_strengths")
 
-    event_scores, event_labels, event_weights, event_counts = {}, {}, {}, {}
-    if jet_strengths is None:
-        jet_strengths = np.ones_like(jet_scores, dtype=np.float64)
-    for score, event_id, label, strength in zip(
-            jet_scores, event_ids, labels, jet_strengths):
-        event_id = int(event_id)
-        label = int(label)
-        strength = float(strength)
-        if aggregation == "sum":
-            event_scores[event_id] = event_scores.get(event_id, 0.0) + float(score)
-        elif aggregation == "mean":
-            event_scores[event_id] = event_scores.get(event_id, 0.0) + float(score)
-            event_counts[event_id] = event_counts.get(event_id, 0) + 1
-        elif aggregation == "max":
-            event_scores[event_id] = max(event_scores.get(event_id, -np.inf),
-                                         float(score))
-        elif aggregation == "min":
-            event_scores[event_id] = min(event_scores.get(event_id, np.inf),
-                                         float(score))
-        else:
-            event_scores[event_id] = (
-                event_scores.get(event_id, 0.0) + float(score) * strength)
-            event_weights[event_id] = event_weights.get(event_id, 0.0) + strength
-        if event_id in event_labels and event_labels[event_id] != label:
-            raise ValueError(
-                f"inconsistent labels inside event_id={event_id}: "
-                f"{event_labels[event_id]} vs {label}")
-        event_labels[event_id] = label
-    ordered = sorted(event_scores)
-    if aggregation == "pt_weighted":
-        scores = [event_scores[e] / max(event_weights[e], 1e-12)
-                  for e in ordered]
+    jet_scores = np.asarray(jet_scores, dtype=np.float64).reshape(-1)
+    event_ids = np.asarray(event_ids, dtype=np.int64).reshape(-1)
+    labels = np.asarray(labels, dtype=np.int64).reshape(-1)
+    if jet_strengths is not None:
+        jet_strengths = np.asarray(jet_strengths, dtype=np.float64).reshape(-1)
+    if not (len(jet_scores) and len(jet_scores) == len(event_ids) == len(labels)
+            and (jet_strengths is None or len(jet_strengths) == len(jet_scores))):
+        raise ValueError(
+            "jet_scores, event_ids, labels, and any jet_strengths must be "
+            "non-empty and the same length"
+        )
+
+    order = np.argsort(event_ids, kind="stable")
+    sorted_ids = event_ids[order]
+    sorted_scores = jet_scores[order]
+    sorted_labels = labels[order]
+    ordered, starts, counts = np.unique(
+        sorted_ids, return_index=True, return_counts=True)
+    label_min = np.minimum.reduceat(sorted_labels, starts)
+    label_max = np.maximum.reduceat(sorted_labels, starts)
+    if np.any(label_min != label_max):
+        bad = ordered[label_min != label_max][:5].tolist()
+        raise ValueError(f"inconsistent labels inside event ids {bad}")
+
+    if aggregation == "sum":
+        scores = np.add.reduceat(sorted_scores, starts)
     elif aggregation == "mean":
-        scores = [event_scores[e] / event_counts[e] for e in ordered]
+        scores = np.add.reduceat(sorted_scores, starts) / counts
+    elif aggregation == "max":
+        scores = np.maximum.reduceat(sorted_scores, starts)
+    elif aggregation == "min":
+        scores = np.minimum.reduceat(sorted_scores, starts)
     else:
-        scores = [event_scores[e] for e in ordered]
-    return (np.array(scores, dtype=np.float64),
-            np.array([event_labels[e] for e in ordered], dtype=np.int64),
-            np.array(ordered, dtype=np.int64))
+        sorted_strengths = jet_strengths[order]
+        weighted = np.add.reduceat(sorted_scores * sorted_strengths, starts)
+        total = np.add.reduceat(sorted_strengths, starts)
+        scores = weighted / np.maximum(total, 1e-12)
+    return EventScores(
+        scores=np.asarray(scores, dtype=np.float64),
+        labels=np.asarray(label_min, dtype=np.int64),
+        event_ids=np.asarray(ordered, dtype=np.int64),
+    )
 
 
 @torch.no_grad()
 def score_events(model, ds, device, batch_size=2048, indices=None,
-                 aggregation: str = "sum"):
-    """Return (scores, labels, event_ids) at event level.
-
-    Each Data item is still one jet graph; this sums all selected jets with the
-    same event_id, matching the reference repo's event score = jet0 + jet1.
-    """
-    if not getattr(ds, "has_event_ids", lambda: False)():
-        raise ValueError(
-            "Event-level scoring requires event_ids in metadata. Rebuild point "
-            "cloud and graph shards with the current preprocess/build_subset.")
-
-    idx = list(range(len(ds))) if indices is None else sorted(int(i) for i in indices)
-    jet_scores = score_jets(model, ds, device, batch_size=batch_size, indices=idx)
-    event_ids = np.asarray(ds.event_ids[idx], dtype=np.int64)
-    labels = np.asarray(ds.labels[idx], dtype=np.int64)
-    jet_strengths = None
-    if aggregation == "pt_weighted":
-        jet_strengths = np.array([float(ds[i].pt.sum()) for i in idx],
-                                 dtype=np.float64)
-    return _event_score_arrays(jet_scores, event_ids, labels, jet_strengths,
-                               aggregation)
-
-
-@torch.no_grad()
-def score_dataset(model, ds, device, batch_size=2048, indices=None,
-                  aggregation: str = "sum"):
-    """Return event-level anomaly scores only."""
-    scores, _, _ = score_events(model, ds, device, batch_size, indices,
-                                aggregation)
-    return scores
-
-
-def report(scores, labels):
-    """AD metrics (high score = anomalous): AUC, max-SIC, ε_S at 100x/1000x rej."""
-    max_sic, thr, _, _ = compute_sic(scores, labels)
-    return {
-        "auc": auc_score(scores, labels),
-        "max_sic": max_sic,
-        "best_threshold": thr,
-        "eS_at_eB1e-2": signal_eff_at_bkg_eff(scores, labels, 0.01),
-        "eS_at_eB1e-3": signal_eff_at_bkg_eff(scores, labels, 0.001),
-        "n_signal": int((labels == 1).sum()),
-        "n_background": int((labels == 0).sum()),
-    }
+                 aggregation: str = "sum") -> EventScores:
+    idx = _scoring_indices(ds, indices, batch_size)
+    _require_two_jets(ds, idx)
+    jet_scores, event_ids, labels, strengths = [], [], [], []
+    model.eval()
+    for batch in prefetch(shard_iter(
+            ds, idx, batch_size,
+            shuffle_shards=False, shuffle_within=False, device=device),
+            depth=2):
+        jet_scores.append(model.anomaly_score(batch).view(-1).cpu())
+        event_ids.append(batch.event_id.view(-1).cpu())
+        labels.append(batch.y.view(-1).cpu())
+        if aggregation == "pt_weighted":
+            strengths.append(graph_pt_sums(batch))
+    return aggregate_event_scores(
+        torch.cat(jet_scores).numpy(),
+        torch.cat(event_ids).numpy(),
+        torch.cat(labels).numpy(),
+        torch.cat(strengths).numpy() if strengths else None,
+        aggregation,
+    )
