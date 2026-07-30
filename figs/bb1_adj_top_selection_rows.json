@@ -1,0 +1,1458 @@
+[
+  {
+    "title": "BB1 top selection: no-exclude vs baseline (no adj. reg), fine-tune 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "exclude 3600-4000 train": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9861,
+          "peak_events_per_bin_smoothed": 581.386015636178
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "exclude 3600-4000 train": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4921,
+          "peak_events_per_bin_smoothed": 276.86056116492296
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "exclude 3600-4000 train": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 976,
+          "peak_events_per_bin_smoothed": 51.04424237055435
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "exclude 3600-4000 train": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 485,
+          "peak_events_per_bin_smoothed": 24.725133325721853
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "exclude 3600-4000 train": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 97,
+          "peak_events_per_bin_smoothed": 5.151330622101749
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_0p_baseline_top1_to_0p01_row.png",
+    "tag": "finetune_0p_baseline",
+    "bb1_eval": "mjj_frozen",
+    "truth_decomp": {
+      "title": "BB1 baseline (no adj. reg), fine-tune 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9861,
+          "real_anomaly_in_selection": 195,
+          "selected_minus_real_anomaly": 9666
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4921,
+          "real_anomaly_in_selection": 137,
+          "selected_minus_real_anomaly": 4784
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 976,
+          "real_anomaly_in_selection": 52,
+          "selected_minus_real_anomaly": 924
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 485,
+          "real_anomaly_in_selection": 33,
+          "selected_minus_real_anomaly": 452
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 97,
+          "real_anomaly_in_selection": 12,
+          "selected_minus_real_anomaly": 85
+        }
+      },
+      "png": "figs/bb1_adj_finetune_0p_baseline_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB3_sum, fine-tune 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9784,
+          "peak_events_per_bin_smoothed": 470.9915021911661
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4844,
+          "peak_events_per_bin_smoothed": 214.4811011468223
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 945,
+          "peak_events_per_bin_smoothed": 41.33493565241421
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 475,
+          "peak_events_per_bin_smoothed": 24.91327442007944
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 100,
+          "peak_events_per_bin_smoothed": 7.423746032921278
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_0p_unique_EB3_sum_top1_to_0p01_row.png",
+    "tag": "finetune_0p_unique_EB3_sum",
+    "bb1_eval": "mjj_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB3_sum, fine-tune 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9784,
+          "real_anomaly_in_selection": 293,
+          "selected_minus_real_anomaly": 9491
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4844,
+          "real_anomaly_in_selection": 219,
+          "selected_minus_real_anomaly": 4625
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 945,
+          "real_anomaly_in_selection": 82,
+          "selected_minus_real_anomaly": 863
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 475,
+          "real_anomaly_in_selection": 42,
+          "selected_minus_real_anomaly": 433
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 100,
+          "real_anomaly_in_selection": 1,
+          "selected_minus_real_anomaly": 99
+        }
+      },
+      "png": "figs/bb1_adj_finetune_0p_unique_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB2_sum, fine-tune 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9786,
+          "peak_events_per_bin_smoothed": 482.94720432424094
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4842,
+          "peak_events_per_bin_smoothed": 220.87362072402527
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 937,
+          "peak_events_per_bin_smoothed": 33.946516516677136
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 459,
+          "peak_events_per_bin_smoothed": 19.53543044192324
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 88,
+          "peak_events_per_bin_smoothed": 4.085015337371431
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_0p_unique_EB2_sum_top1_to_0p01_row.png",
+    "tag": "finetune_0p_unique_EB2_sum",
+    "bb1_eval": "mjj_hidden_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB2_sum, fine-tune 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9786,
+          "real_anomaly_in_selection": 286,
+          "selected_minus_real_anomaly": 9500
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4842,
+          "real_anomaly_in_selection": 202,
+          "selected_minus_real_anomaly": 4640
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 937,
+          "real_anomaly_in_selection": 73,
+          "selected_minus_real_anomaly": 864
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 459,
+          "real_anomaly_in_selection": 43,
+          "selected_minus_real_anomaly": 416
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 88,
+          "real_anomaly_in_selection": 13,
+          "selected_minus_real_anomaly": 75
+        }
+      },
+      "png": "figs/bb1_adj_finetune_0p_unique_EB2_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs graph_EB3_sum, fine-tune 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9721,
+          "peak_events_per_bin_smoothed": 442.7240172308659
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4792,
+          "peak_events_per_bin_smoothed": 199.84437674844781
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 917,
+          "peak_events_per_bin_smoothed": 34.12074965905637
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 452,
+          "peak_events_per_bin_smoothed": 20.171146450151095
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 94,
+          "peak_events_per_bin_smoothed": 6.348953565519633
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_0p_graph_EB3_sum_top1_to_0p01_row.png",
+    "tag": "finetune_0p_graph_EB3_sum",
+    "bb1_eval": "mjj_graph_sum",
+    "truth_decomp": {
+      "title": "BB1 graph_EB3_sum, fine-tune 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9721,
+          "real_anomaly_in_selection": 313,
+          "selected_minus_real_anomaly": 9408
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4792,
+          "real_anomaly_in_selection": 223,
+          "selected_minus_real_anomaly": 4569
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 917,
+          "real_anomaly_in_selection": 81,
+          "selected_minus_real_anomaly": 836
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 452,
+          "real_anomaly_in_selection": 48,
+          "selected_minus_real_anomaly": 404
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 94,
+          "real_anomaly_in_selection": 7,
+          "selected_minus_real_anomaly": 87
+        }
+      },
+      "png": "figs/bb1_adj_finetune_0p_graph_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs baseline (no adj. reg), fine-tune 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "baseline (no adj. reg)": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9852,
+          "peak_events_per_bin_smoothed": 572.7538740273413
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "baseline (no adj. reg)": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4896,
+          "peak_events_per_bin_smoothed": 269.62188504224287
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "baseline (no adj. reg)": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 967,
+          "peak_events_per_bin_smoothed": 44.99186959938858
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "baseline (no adj. reg)": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 482,
+          "peak_events_per_bin_smoothed": 23.559986228332036
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "baseline (no adj. reg)": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "peak_events_per_bin_smoothed": 5.035876405521762
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_3p_baseline_top1_to_0p01_row.png",
+    "tag": "finetune_3p_baseline",
+    "bb1_eval": "sbr003_frozen",
+    "truth_decomp": {
+      "title": "BB1 baseline (no adj. reg), fine-tune 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9852,
+          "real_anomaly_in_selection": 183,
+          "selected_minus_real_anomaly": 9669
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4896,
+          "real_anomaly_in_selection": 132,
+          "selected_minus_real_anomaly": 4764
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 967,
+          "real_anomaly_in_selection": 56,
+          "selected_minus_real_anomaly": 911
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 482,
+          "real_anomaly_in_selection": 35,
+          "selected_minus_real_anomaly": 447
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "real_anomaly_in_selection": 10,
+          "selected_minus_real_anomaly": 85
+        }
+      },
+      "png": "figs/bb1_adj_finetune_3p_baseline_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB3_sum, fine-tune 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9775,
+          "peak_events_per_bin_smoothed": 481.30782377277296
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4830,
+          "peak_events_per_bin_smoothed": 225.51555177858484
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 943,
+          "peak_events_per_bin_smoothed": 40.825120829680316
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 470,
+          "peak_events_per_bin_smoothed": 20.85549464014388
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "peak_events_per_bin_smoothed": 6.432883348058281
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_3p_unique_EB3_sum_top1_to_0p01_row.png",
+    "tag": "finetune_3p_unique_EB3_sum",
+    "bb1_eval": "sbr003_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB3_sum, fine-tune 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9775,
+          "real_anomaly_in_selection": 291,
+          "selected_minus_real_anomaly": 9484
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4830,
+          "real_anomaly_in_selection": 216,
+          "selected_minus_real_anomaly": 4614
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 943,
+          "real_anomaly_in_selection": 80,
+          "selected_minus_real_anomaly": 863
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 470,
+          "real_anomaly_in_selection": 46,
+          "selected_minus_real_anomaly": 424
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "real_anomaly_in_selection": 8,
+          "selected_minus_real_anomaly": 87
+        }
+      },
+      "png": "figs/bb1_adj_finetune_3p_unique_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB2_sum, fine-tune 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9769,
+          "peak_events_per_bin_smoothed": 462.8853898245578
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4831,
+          "peak_events_per_bin_smoothed": 208.97939881091995
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 927,
+          "peak_events_per_bin_smoothed": 39.0026051938753
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 454,
+          "peak_events_per_bin_smoothed": 22.492571523235892
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 94,
+          "peak_events_per_bin_smoothed": 4.118636165827713
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_3p_unique_EB2_sum_top1_to_0p01_row.png",
+    "tag": "finetune_3p_unique_EB2_sum",
+    "bb1_eval": "sbr003_hidden_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB2_sum, fine-tune 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9769,
+          "real_anomaly_in_selection": 317,
+          "selected_minus_real_anomaly": 9452
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4831,
+          "real_anomaly_in_selection": 231,
+          "selected_minus_real_anomaly": 4600
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 927,
+          "real_anomaly_in_selection": 99,
+          "selected_minus_real_anomaly": 828
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 454,
+          "real_anomaly_in_selection": 61,
+          "selected_minus_real_anomaly": 393
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 94,
+          "real_anomaly_in_selection": 15,
+          "selected_minus_real_anomaly": 79
+        }
+      },
+      "png": "figs/bb1_adj_finetune_3p_unique_EB2_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs graph_EB3_sum, fine-tune 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9707,
+          "peak_events_per_bin_smoothed": 402.99177828096595
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4773,
+          "peak_events_per_bin_smoothed": 185.17834400087625
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 914,
+          "peak_events_per_bin_smoothed": 43.11054482025485
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 455,
+          "peak_events_per_bin_smoothed": 26.281749007068605
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 99,
+          "peak_events_per_bin_smoothed": 7.112173737727183
+        }
+      }
+    },
+    "png": "figs/bb1_adj_finetune_3p_graph_EB3_sum_top1_to_0p01_row.png",
+    "tag": "finetune_3p_graph_EB3_sum",
+    "bb1_eval": "sbr003_graph_sum",
+    "truth_decomp": {
+      "title": "BB1 graph_EB3_sum, fine-tune 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9707,
+          "real_anomaly_in_selection": 223,
+          "selected_minus_real_anomaly": 9484
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4773,
+          "real_anomaly_in_selection": 140,
+          "selected_minus_real_anomaly": 4633
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 914,
+          "real_anomaly_in_selection": 30,
+          "selected_minus_real_anomaly": 884
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 455,
+          "real_anomaly_in_selection": 11,
+          "selected_minus_real_anomaly": 444
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 99,
+          "real_anomaly_in_selection": 0,
+          "selected_minus_real_anomaly": 99
+        }
+      },
+      "png": "figs/bb1_adj_finetune_3p_graph_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB3_sum, from-scratch 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9830,
+          "peak_events_per_bin_smoothed": 519.2203109520539
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4885,
+          "peak_events_per_bin_smoothed": 239.84322639829804
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 972,
+          "peak_events_per_bin_smoothed": 40.27301174406426
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 479,
+          "peak_events_per_bin_smoothed": 18.993837401154757
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 93,
+          "peak_events_per_bin_smoothed": 3.4853144452667784
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_0p_unique_EB3_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_0p_unique_EB3_sum",
+    "bb1_eval": "mjj_fromscratch_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB3_sum, from-scratch 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9830,
+          "real_anomaly_in_selection": 259,
+          "selected_minus_real_anomaly": 9571
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4885,
+          "real_anomaly_in_selection": 180,
+          "selected_minus_real_anomaly": 4705
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 972,
+          "real_anomaly_in_selection": 58,
+          "selected_minus_real_anomaly": 914
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 479,
+          "real_anomaly_in_selection": 32,
+          "selected_minus_real_anomaly": 447
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 93,
+          "real_anomaly_in_selection": 11,
+          "selected_minus_real_anomaly": 82
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_0p_unique_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB2_sum, from-scratch 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9765,
+          "peak_events_per_bin_smoothed": 525.9770528235666
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4835,
+          "peak_events_per_bin_smoothed": 252.88504045213534
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 946,
+          "peak_events_per_bin_smoothed": 46.65984277703978
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 473,
+          "peak_events_per_bin_smoothed": 24.01172899662591
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 97,
+          "peak_events_per_bin_smoothed": 5.740810450121989
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_0p_unique_EB2_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_0p_unique_EB2_sum",
+    "bb1_eval": "mjj_fromscratch_hidden_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB2_sum, from-scratch 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9765,
+          "real_anomaly_in_selection": 264,
+          "selected_minus_real_anomaly": 9501
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4835,
+          "real_anomaly_in_selection": 176,
+          "selected_minus_real_anomaly": 4659
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 946,
+          "real_anomaly_in_selection": 88,
+          "selected_minus_real_anomaly": 858
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 473,
+          "real_anomaly_in_selection": 43,
+          "selected_minus_real_anomaly": 430
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 97,
+          "real_anomaly_in_selection": 13,
+          "selected_minus_real_anomaly": 84
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_0p_unique_EB2_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs graph_EB3_sum, from-scratch 0% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9822,
+          "peak_events_per_bin_smoothed": 537.5693208395926
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4877,
+          "peak_events_per_bin_smoothed": 254.1990485102339
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 967,
+          "peak_events_per_bin_smoothed": 46.88020369724617
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 480,
+          "peak_events_per_bin_smoothed": 22.159357236945226
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "peak_events_per_bin_smoothed": 5.174757434821812
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_0p_graph_EB3_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_0p_graph_EB3_sum",
+    "bb1_eval": "mjj_fromscratch_graph_sum",
+    "truth_decomp": {
+      "title": "BB1 graph_EB3_sum, from-scratch 0%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9822,
+          "real_anomaly_in_selection": 270,
+          "selected_minus_real_anomaly": 9552
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4877,
+          "real_anomaly_in_selection": 198,
+          "selected_minus_real_anomaly": 4679
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 967,
+          "real_anomaly_in_selection": 73,
+          "selected_minus_real_anomaly": 894
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 480,
+          "real_anomaly_in_selection": 53,
+          "selected_minus_real_anomaly": 427
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 95,
+          "real_anomaly_in_selection": 14,
+          "selected_minus_real_anomaly": 81
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_0p_graph_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB3_sum, from-scratch 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9820,
+          "peak_events_per_bin_smoothed": 532.8771505871969
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4878,
+          "peak_events_per_bin_smoothed": 253.56817410987895
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 965,
+          "peak_events_per_bin_smoothed": 46.052760129691514
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 481,
+          "peak_events_per_bin_smoothed": 23.26437210606512
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 98,
+          "peak_events_per_bin_smoothed": 5.466856609001897
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_3p_unique_EB3_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_3p_unique_EB3_sum",
+    "bb1_eval": "sbr003_fromscratch_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB3_sum, from-scratch 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9820,
+          "real_anomaly_in_selection": 264,
+          "selected_minus_real_anomaly": 9556
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4878,
+          "real_anomaly_in_selection": 203,
+          "selected_minus_real_anomaly": 4675
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 965,
+          "real_anomaly_in_selection": 78,
+          "selected_minus_real_anomaly": 887
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 481,
+          "real_anomaly_in_selection": 53,
+          "selected_minus_real_anomaly": 428
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 98,
+          "real_anomaly_in_selection": 15,
+          "selected_minus_real_anomaly": 83
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_3p_unique_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs unique_EB2_sum, from-scratch 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9548,
+          "peak_events_per_bin_smoothed": 385.2783106766042
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4607,
+          "peak_events_per_bin_smoothed": 208.03273647944178
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 755,
+          "peak_events_per_bin_smoothed": 42.85614811317998
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 341,
+          "peak_events_per_bin_smoothed": 18.76929046395161
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "unique_EB2_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 99,
+          "peak_events_per_bin_smoothed": 7.555347466564143
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_3p_unique_EB2_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_3p_unique_EB2_sum",
+    "bb1_eval": "sbr003_fromscratch_hidden_unique_sum",
+    "truth_decomp": {
+      "title": "BB1 unique_EB2_sum, from-scratch 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9548,
+          "real_anomaly_in_selection": 165,
+          "selected_minus_real_anomaly": 9383
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4607,
+          "real_anomaly_in_selection": 83,
+          "selected_minus_real_anomaly": 4524
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 755,
+          "real_anomaly_in_selection": 8,
+          "selected_minus_real_anomaly": 747
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 341,
+          "real_anomaly_in_selection": 3,
+          "selected_minus_real_anomaly": 338
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 99,
+          "real_anomaly_in_selection": 0,
+          "selected_minus_real_anomaly": 99
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_3p_unique_EB2_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  },
+  {
+    "title": "BB1 top selection: no-exclude vs graph_EB3_sum, from-scratch 3% (last.pt)",
+    "working_points": {
+      "top_1%": {
+        "no mjj exclude": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9843,
+          "peak_events_per_bin_smoothed": 581.4789777438293
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9810,
+          "peak_events_per_bin_smoothed": 509.6875894886813
+        }
+      },
+      "top_0.5%": {
+        "no mjj exclude": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4909,
+          "peak_events_per_bin_smoothed": 275.8956841400335
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4870,
+          "peak_events_per_bin_smoothed": 244.17237897505504
+        }
+      },
+      "top_0.1%": {
+        "no mjj exclude": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 977,
+          "peak_events_per_bin_smoothed": 50.56448227189014
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 962,
+          "peak_events_per_bin_smoothed": 42.49026619817597
+        }
+      },
+      "top_0.05%": {
+        "no mjj exclude": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 483,
+          "peak_events_per_bin_smoothed": 23.770422724751562
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 476,
+          "peak_events_per_bin_smoothed": 20.79911821369636
+        }
+      },
+      "top_0.01%": {
+        "no mjj exclude": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 5.008689289588677
+        },
+        "graph_EB3_sum": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "peak_events_per_bin_smoothed": 4.812636359099461
+        }
+      }
+    },
+    "png": "figs/bb1_adj_fromscratch_3p_graph_EB3_sum_top1_to_0p01_row.png",
+    "tag": "fromscratch_3p_graph_EB3_sum",
+    "bb1_eval": "sbr003_fromscratch_graph_sum",
+    "truth_decomp": {
+      "title": "BB1 graph_EB3_sum, from-scratch 3%: top-score selection with truth decomposition (last.pt)",
+      "working_points": {
+        "top_1%": {
+          "selected_events_total": 9996,
+          "selected_events_in_plot_range": 9810,
+          "real_anomaly_in_selection": 277,
+          "selected_minus_real_anomaly": 9533
+        },
+        "top_0.5%": {
+          "selected_events_total": 4998,
+          "selected_events_in_plot_range": 4870,
+          "real_anomaly_in_selection": 204,
+          "selected_minus_real_anomaly": 4666
+        },
+        "top_0.1%": {
+          "selected_events_total": 1000,
+          "selected_events_in_plot_range": 962,
+          "real_anomaly_in_selection": 80,
+          "selected_minus_real_anomaly": 882
+        },
+        "top_0.05%": {
+          "selected_events_total": 500,
+          "selected_events_in_plot_range": 476,
+          "real_anomaly_in_selection": 55,
+          "selected_minus_real_anomaly": 421
+        },
+        "top_0.01%": {
+          "selected_events_total": 100,
+          "selected_events_in_plot_range": 96,
+          "real_anomaly_in_selection": 15,
+          "selected_minus_real_anomaly": 81
+        }
+      },
+      "png": "figs/bb1_adj_fromscratch_3p_graph_EB3_sum_truth_decomp_top1_to_0p01_row.png"
+    }
+  }
+]
