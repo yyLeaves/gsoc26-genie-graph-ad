@@ -14,6 +14,26 @@ _MANIFEST_ROLES = (
 _MANIFEST_KEYS = {name for name, _ in _MANIFEST_ROLES}
 
 
+def validate_split_args(args) -> None:
+    """Validate split-related CLI args; shared by CLI and ``build_splits``."""
+    protocol = getattr(args, "split_protocol", "manifest")
+    manifest = getattr(args, "split_manifest", None)
+    if protocol not in {"manifest", "ks_fixed"}:
+        raise ValueError(
+            f"split_protocol must be 'manifest' or 'ks_fixed', got {protocol!r}")
+    if protocol == "manifest" and not manifest:
+        raise ValueError("split_protocol='manifest' requires --split_manifest.")
+    if protocol == "ks_fixed" and manifest:
+        raise ValueError(
+            "--split_manifest cannot be combined with split_protocol='ks_fixed'.")
+    if not 0 < args.fraction <= 1:
+        raise ValueError(f"fraction must be in (0, 1], got {args.fraction}")
+    if manifest and args.fraction < 1.0:
+        raise ValueError(
+            "--split_manifest cannot be combined with --fraction < 1; "
+            "use a smaller manifest for pilot runs.")
+
+
 @dataclass
 class Splits:
     train_idx: np.ndarray
@@ -38,14 +58,11 @@ def _read_manifest(path: str, event_label: dict[int, int]) -> dict[str, set[int]
     with np.load(path) as manifest:
         files = set(manifest.files)
         missing = sorted(_MANIFEST_KEYS - files)
-        unknown = sorted(files - _MANIFEST_KEYS)
         if missing:
             raise ValueError(
                 f"split manifest {path} is missing required event arrays "
                 f"{missing}")
-        if unknown:
-            raise ValueError(
-                f"split manifest {path} has unknown event arrays {unknown}")
+        # Ignore legacy companion arrays (train_events / val_events, …).
         split_sets = {k: _as_event_set(manifest, k) for k, _ in _MANIFEST_ROLES}
 
     names = list(split_sets)
@@ -178,20 +195,8 @@ def build_splits(ds, args, log, rng) -> Splits:
 
     Shared ``rng`` is advanced here, then reused for per-epoch shuffles.
     """
+    validate_split_args(args)
     manifest = getattr(args, "split_manifest", None)
-    protocol = getattr(args, "split_protocol", "manifest")
-    if protocol not in {"manifest", "ks_fixed"}:
-        raise ValueError(
-            f"split_protocol must be 'manifest' or 'ks_fixed', got {protocol!r}")
-    if protocol == "manifest" and not manifest:
-        raise ValueError("split_protocol='manifest' requires --split_manifest.")
-    if protocol == "ks_fixed" and manifest:
-        raise ValueError(
-            "--split_manifest cannot be combined with split_protocol='ks_fixed'.")
-    if manifest and args.fraction < 1.0:
-        raise ValueError(
-            "--split_manifest cannot be combined with --fraction < 1; "
-            "use a smaller manifest for pilot runs.")
 
     all_idx = _pilot_all_idx(ds, args.fraction, log)
     event_ids = np.asarray(ds.event_ids[all_idx], dtype=np.int64)

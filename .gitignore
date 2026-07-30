@@ -1,19 +1,18 @@
-# data and training outputs (tens of GB, regenerable via pipeline.sh / train_*)
+# Local datasets and generated experiment outputs
 dataset/*
 runs/*
+logs/*
 !dataset/.gitkeep
 !runs/.gitkeep
 
-# python
+# Python caches and build metadata
 __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
 
-# jupyter
+# Jupyter and document build artifacts
 .ipynb_checkpoints/
-
-# latex build artifacts
 *.aux
 *.log
 *.out

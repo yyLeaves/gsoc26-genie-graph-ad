@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 import logging
 import sys
@@ -14,8 +15,9 @@ from src.checkpoint import load_checkpoint
 from src.data.dataset import JetDataset
 from src.data.iterate import prefetch, shard_iter
 from src.models import (EDGE_FEATURE_MODEL_TYPES, PT_NODE_MODEL_TYPES,
-                        LossTerms, ModelSpec, create_model,
+                        ModelSpec, create_model,
                         ensure_dataset_matches)
+from src.models.reconstruction import mean_loss, reconstruction_scores
 from src.training.evaluation import evaluate_epoch, final_evaluation
 from src.training.artifacts import (capture_training_state,
                                     restore_training_checkpoint,
@@ -23,6 +25,17 @@ from src.training.artifacts import (capture_training_state,
                                     save_training_checkpoint,
                                     write_run_config)
 from src.training.splits import build_splits
+from src.training.topo_reg import compute_topo_reg
+
+
+@dataclass(frozen=True, slots=True)
+class TrainEpochStats:
+    """Per-epoch training means. ``total/node/edge`` are reconstruction only."""
+
+    total: float
+    node: float
+    edge: float
+    reg: float = 0.0
 
 FIRST_NODE_FEATURE_SEMANTICS = {
     "raw": "raw_pt",
@@ -154,20 +167,46 @@ def build_optimizer_scheduler(args, model, ds, train_idx, log):
     log.info(f"Eval every : {args.eval_interval} epochs  (AUC + SIC on eval_set)")
     log.info(f"Batch size : {args.batch_size}")
     log.info(f"Score agg  : {args.event_score_agg}")
+    topo_reg = getattr(args, "topo_reg", "none") or "none"
+    if topo_reg != "none":
+        log.info(f"Topo reg  : {topo_reg}  λ={args.lambda_topo}  "
+                 f"unique_k={args.unique_k}  (val/anomaly still recon-only)")
     return optimizer, scheduler, sched_per_batch, total_steps, sched_desc
 
 
 def train_one_epoch(model, ds, splits, optimizer, scheduler, sched_per_batch,
                     total_steps, args, device, rng):
-    """Run one training pass and return mean total/node/edge losses."""
+    """Run one training pass and return mean recon + optional topo-reg stats.
+
+    Returned ``total/node/edge`` are *reconstruction* means (same units as the
+    reference runs).  When ``--topo_reg`` is set the optimized objective is
+    ``recon + λ * reg``.
+    """
     model.train()
-    sum_total = sum_node = sum_edge = n_seen = 0.0
+    sum_total = sum_node = sum_edge = sum_reg = n_seen = 0.0
+    topo_reg = getattr(args, "topo_reg", "none") or "none"
+    lambda_topo = float(getattr(args, "lambda_topo", 0.0) or 0.0)
+    unique_k = int(getattr(args, "unique_k", 6))
     for batch in prefetch(shard_iter(
             ds, splits.train_idx, args.batch_size,
             shuffle_shards=True, shuffle_within=True, rng=rng, device=device)):
         optimizer.zero_grad()
-        losses = model.loss(batch)
-        losses.total.backward()
+        output, node_target, edge_target = model._reconstruct(batch)
+        losses = mean_loss(reconstruction_scores(
+            output, node_target, batch,
+            edge_target=edge_target,
+            edge_weight=getattr(model, "edge_weight", 1.0),
+        ))
+        if topo_reg != "none" and lambda_topo != 0.0:
+            reg = compute_topo_reg(
+                topo_reg, output.latent, batch, unique_k=unique_k,
+                model=model, node_target=node_target,
+                edge_target=edge_target)
+            opt_loss = losses.total + lambda_topo * reg
+        else:
+            reg = losses.total.new_zeros(())
+            opt_loss = losses.total
+        opt_loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         if sched_per_batch and scheduler.last_epoch + 1 < total_steps:
@@ -176,11 +215,13 @@ def train_one_epoch(model, ds, splits, optimizer, scheduler, sched_per_batch,
         sum_total += losses.total.item() * b
         sum_node += losses.node.item() * b
         sum_edge += losses.edge.item() * b
+        sum_reg += float(reg.detach()) * b
         n_seen += b
     if not sched_per_batch:
         scheduler.step()
-    return LossTerms(total=sum_total / n_seen, node=sum_node / n_seen,
-                     edge=sum_edge / n_seen)
+    return TrainEpochStats(
+        total=sum_total / n_seen, node=sum_node / n_seen,
+        edge=sum_edge / n_seen, reg=sum_reg / n_seen)
 
 
 def _open_run(args):
@@ -373,6 +414,9 @@ def train(args):
             "monitor_auc_improved": monitor_improved,
             "epoch_time_s": time.time() - ep_t0,
         }
+        if (getattr(args, "topo_reg", "none") or "none") != "none":
+            entry["train_reg"] = float(train_losses.reg)
+            entry["lambda_topo"] = float(args.lambda_topo)
         if do_metrics:
             entry["score_sep"] = ev["mean_score_sig"] - ev["mean_score_bkg"]
         history.append(entry)

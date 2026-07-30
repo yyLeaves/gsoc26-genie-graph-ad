@@ -61,6 +61,18 @@ def split_fingerprint(splits: Splits) -> str:
     return digest.hexdigest()
 
 
+def _backfill_topo_defaults(sig: dict) -> dict:
+    """Add topo_reg fields with defaults to a pre-topo resume_signature."""
+    sig = {**sig}
+    if "training" in sig:
+        t = {**sig["training"]}
+        t.setdefault("topo_reg", "none")
+        t.setdefault("lambda_topo", 0.0)
+        t.setdefault("unique_k", 6)
+        sig["training"] = t
+    return sig
+
+
 def resume_signature(args, model_spec: ModelSpec, ds, splits: Splits) -> dict:
     """Fields that must match for an exact epoch-boundary resume."""
     return {
@@ -80,6 +92,9 @@ def resume_signature(args, model_spec: ModelSpec, ds, splits: Splits) -> dict:
             "eval_interval": args.eval_interval,
             "event_score_aggregation": args.event_score_agg,
             "save_monitor_best": getattr(args, "save_monitor_best", False),
+            "topo_reg": getattr(args, "topo_reg", "none") or "none",
+            "lambda_topo": float(getattr(args, "lambda_topo", 0.0) or 0.0),
+            "unique_k": int(getattr(args, "unique_k", 6)),
         },
     }
 
@@ -175,6 +190,9 @@ def write_run_config(output_dir, run_name, ts, args, model, model_spec, ds,
             "cache_shards": args.cache_shards,
             "event_score_aggregation": args.event_score_agg,
             "save_monitor_best": getattr(args, "save_monitor_best", False),
+            "topo_reg": getattr(args, "topo_reg", "none") or "none",
+            "lambda_topo": float(getattr(args, "lambda_topo", 0.0) or 0.0),
+            "unique_k": int(getattr(args, "unique_k", 6)),
         },
         "optimizer": {
             "type": "AdamW", "lr": args.lr, "weight_decay": args.weight_decay,
@@ -260,10 +278,17 @@ def restore_training_checkpoint(
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
         raise ValueError("resume checkpoint does not contain run_config")
-    if run_config.get("resume_signature") != expected_signature:
-        raise ValueError(
-            "resume checkpoint does not match the requested model, dataset, "
-            "split, or training schedule")
+    saved_sig = run_config.get("resume_signature")
+    if saved_sig != expected_signature:
+        # Allow resuming pre-topo checkpoints when topo_reg is "none"
+        if saved_sig is not None:
+            patched = _backfill_topo_defaults(saved_sig)
+            if patched == expected_signature:
+                saved_sig = patched
+        if saved_sig != expected_signature:
+            raise ValueError(
+                "resume checkpoint does not match the requested model, "
+                "dataset, split, or training schedule")
 
     state = require_training_state(payload)
     model.load_state_dict(payload["model"]["state"])
