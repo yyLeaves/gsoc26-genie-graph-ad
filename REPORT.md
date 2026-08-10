@@ -554,7 +554,7 @@ The 0% row uses pure-background calibration; the 3% row uses calibration with
 | Training signal | WR | YY | Zp | YHH | LHCO | BB1 |
 | --------------: | -: | -: | -: | --: | ---: | --: |
 | 0% | 0.908 | 0.899 | 0.913 | 0.901 | 0.935 | 0.921 |
-| 3% | 0.866 | 0.852 | 0.877 | 0.866 | 0.907 | pending |
+| 3% | 0.866 | 0.852 | 0.877 | 0.866 | 0.907 | 0.906 |
 
 The method requires two models.
 
