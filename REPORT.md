@@ -539,13 +539,12 @@ s_{\rm gated}(e)=g(e)Q_{\rm strong}(e)+[1-g(e)]Q_{\rm baseline}(e).
 $$
 
 The two branches are EB2+EB3 strong attraction and the EdgeConv baseline.
-Each row uses models trained at the stated contamination level. Percentiles
-use pure validation background. We use $\tau=0.5$ and $T=0.25$.
+Percentiles use pure validation background. We use $\tau=0.5$ and $T=0.25$.
 
 | Training signal | WR | YY | Zp | YHH | LHCO | BB1 |
 | --------------: | -: | -: | -: | --: | ---: | --: |
 | 0% | 0.908 | 0.899 | 0.913 | 0.901 | 0.935 | 0.921 |
-| 3% | 0.897 | 0.886 | 0.909 | 0.899 | 0.927 | 0.917 |
+| 3% | pending | pending | pending | pending | pending | pending |
 
 The method requires two models.
 
@@ -569,25 +568,10 @@ split, and percentile calibration. All entries are AUC.
 | Gated | 0.500 | 0.9081 | 0.8987 | 0.9126 | 0.9011 | 0.9350 | 0.9205 |
 | Gated | 0.750 | 0.9078 | 0.8997 | 0.9050 | 0.8823 | 0.9359 | 0.9239 |
 
-**3% contamination**
+**3% contamination:** matched graph EB2+EB3 results are pending.
 
-| Model | $\tau$ | WR | YY | Zp | YHH | LHCO | BB1 |
-| ----- | -----: | -: | -: | -: | --: | ---: | --: |
-| Baseline | n/a | 0.8826 | 0.8681 | 0.8995 | 0.8999 | 0.9067 | 0.8854 |
-| Strong attraction | n/a | 0.8826 | 0.8779 | 0.8610 | 0.7937 | 0.9196 | 0.9236 |
-| Gated | 0.250 | 0.8977 | 0.8850 | 0.9133 | 0.9096 | 0.9259 | 0.9122 |
-| Gated | 0.375 | 0.8976 | 0.8854 | 0.9115 | 0.9052 | 0.9268 | 0.9146 |
-| Gated | 0.400 | 0.8975 | 0.8854 | 0.9111 | 0.9041 | 0.9270 | 0.9151 |
-| Gated | 0.425 | 0.8975 | 0.8855 | 0.9106 | 0.9029 | 0.9271 | 0.9156 |
-| Gated | 0.450 | 0.8974 | 0.8855 | 0.9101 | 0.9016 | 0.9272 | 0.9160 |
-| Gated | 0.475 | 0.8973 | 0.8855 | 0.9095 | 0.9003 | 0.9273 | 0.9165 |
-| Gated | 0.500 | 0.8972 | 0.8855 | 0.9089 | 0.8989 | 0.9274 | 0.9169 |
-| Gated | 0.750 | 0.8957 | 0.8854 | 0.9013 | 0.8805 | 0.9279 | 0.9207 |
-
-**Result.** In both settings, larger $\tau$ improves LHCO and BB1 but lowers
+**Result.** For 0% training, larger $\tau$ improves LHCO and BB1 but lowers
 Zp and YHH. WR and YY change little. We use $\tau=0.5$.
-
-![AUC comparison of the baseline, strong-attraction model, and event-wise gated scoring at tau 0.5](figs/event_gated_experts_auc_grouped_bar.png)
 
 #### BB1 bump plots
 
@@ -598,6 +582,4 @@ anomaly and selected background.
 
 ![BB1 overlay and truth decomposition for event-wise gated scoring at tau 0.5 with 0% training](figs/bb1_gated_scoring_tau0p500_pure_overlay_truth.png)
 
-**3% contamination**
-
-![BB1 overlay and truth decomposition for event-wise gated scoring at tau 0.5 with 3% contamination](figs/bb1_gated_scoring_tau0p500_sbr003_overlay_truth.png)
+**3% contamination:** pending.
