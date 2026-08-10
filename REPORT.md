@@ -496,7 +496,7 @@ best WR, YY, LHCO, and BB1 scores, but still suppresses Zp and YHH.
 quantiles, then combine them with an input-only gate.
 
 $$
-Q_k(e)=\operatorname{Percentile}_{\rm bkg}(s_k(e)),
+Q_k(e)=\mathrm{Percentile}_{\mathrm{bkg}}(s_k(e)),
 \qquad k\in\{\mathrm{strong},\mathrm{baseline}\}.
 $$
 
