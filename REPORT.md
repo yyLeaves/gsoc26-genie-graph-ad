@@ -548,12 +548,13 @@ s_{\rm gated}(e)=g(e)Q_{\rm strong}(e)+[1-g(e)]Q_{\rm baseline}(e).
 $$
 
 The two branches are EB2+EB3 strong attraction and the EdgeConv baseline.
-Percentiles use pure validation background. We use $\tau=0.5$ and $T=0.25$.
+The 0% row uses pure-background calibration; the 3% row uses calibration with
+3% signal contamination. We use $\tau=0.5$ and $T=0.25$.
 
 | Training signal | WR | YY | Zp | YHH | LHCO | BB1 |
 | --------------: | -: | -: | -: | --: | ---: | --: |
 | 0% | 0.908 | 0.899 | 0.913 | 0.901 | 0.935 | 0.921 |
-| 3% | pending | pending | pending | pending | pending | pending |
+| 3% | 0.866 | 0.852 | 0.877 | 0.866 | 0.907 | pending |
 
 The method requires two models.
 
