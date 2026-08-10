@@ -528,7 +528,7 @@ therefore receive more strong-attraction weight.
 
 $$
 g(e)=\frac{1}{2}\sum_{j\in e}
-\sigma\!\left(\frac{\tau-\chi_j}{T}\right).
+\sigma\left(\frac{\tau-\chi_j}{T}\right).
 $$
 
 The final anomaly score is a weighted average: $g(e)$ weights the
