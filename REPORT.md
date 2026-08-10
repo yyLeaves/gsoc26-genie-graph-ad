@@ -275,12 +275,7 @@ Same top-score + truth split for the wider window-excluded training.
 Adjacent-subjet regularization adds a second training term: for subjet pairs that share a graph edge, penalize the distance between their internal representations $z$ (taken from an encoder EdgeBlock):
 
 $$
-\mathcal{L}
-= \mathcal{L}_{\mathrm{recon}}
-+ \lambda\,\mathcal{R}(E,\,z),
-\qquad
-\mathcal{R}
-= \frac{1}{N}\sum_{(i,j)\in E}\|z_i-z_j\|.
+\mathcal{L}=\mathcal{L}_{\mathrm{recon}}+\lambda\,\mathcal{R}(E,z),\qquad \mathcal{R}=\frac{1}{N}\sum_{(i,j)\in E}\lVert z_i-z_j\rVert.
 $$
 
 
@@ -525,9 +520,7 @@ We standardize both observables using background centers and scales, then
 average them into the structural coordinate $\chi_j$.
 
 $$
-\chi_j=\frac{1}{2}\left(
-\frac{\mathrm{PR}_j-\mu_{\rm PR}}{a_{\rm PR}}
-+\frac{r_{{\rm rms},j}-\mu_r}{a_r}\right).
+\chi_j=\frac{1}{2}\left(\frac{\mathrm{PR}_j-\mu_{\rm PR}}{a_{\rm PR}}+\frac{r_{{\rm rms},j}-\mu_r}{a_r}\right).
 $$
 
 The gate averages the two jet weights; compact jets have lower $\chi_j$ and
@@ -542,8 +535,7 @@ The final anomaly score is a weighted average: $g(e)$ weights the
 strong-attraction score, and $1-g(e)$ weights the baseline score.
 
 $$
-s_{\rm gated}(e)=g(e)Q_{\rm strong}(e)
-+[1-g(e)]Q_{\rm baseline}(e).
+s_{\rm gated}(e)=g(e)Q_{\rm strong}(e)+[1-g(e)]Q_{\rm baseline}(e).
 $$
 
 The two branches are EB2+EB3 strong attraction and the EdgeConv baseline.
