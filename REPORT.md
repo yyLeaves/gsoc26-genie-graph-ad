@@ -475,6 +475,8 @@ $$
 \lambda_\ell\,\frac{1}{N}\sum_{(i,j)\in E}\lVert z_i^\ell-z_j^\ell\rVert_2.
 $$
 
+**0% signal**
+
 | Model | WR | YY | Zp | YHH | LHCO | BB1 |
 | ----- | -: | -: | -: | --: | ---: | --: |
 | Baseline: reconstruction only | 0.884 | 0.873 | **0.902** | **0.902** | 0.910 | 0.891 |
@@ -482,8 +484,15 @@ $$
 | EB3 only | 0.890 | 0.884 | 0.845 | 0.770 | 0.926 | 0.923 |
 | EB2 + EB3 | **0.898** | **0.895** | 0.864 | 0.791 | **0.930** | **0.926** |
 
-**Result.** EB3 drives most of the compact-signal gain; adding EB2 gives the
-best WR, YY, LHCO, and BB1 scores, but still suppresses Zp and YHH.
+**3% contamination**
+
+| Model | WR | YY | Zp | YHH | LHCO | BB1 |
+| ----- | -: | -: | -: | --: | ---: | --: |
+| Baseline: reconstruction only | **0.883** | **0.868** | **0.899** | **0.900** | **0.907** | 0.885 |
+| EB2 + EB3 | 0.839 | 0.829 | 0.771 | 0.674 | 0.888 | **0.909** |
+
+**Result.** At 0%, EB2+EB3 improves compact signals, LHCO, and BB1 but
+suppresses Zp and YHH. With 3% contamination, only BB1 improves.
 
 ### Event-wise gated scoring
 
