@@ -13,6 +13,7 @@ from .edge_feature_node_graph_ae import (EdgeFeatureGraphAE,
 from .edge_graph_ae import EdgeGraphAE
 from .inputs import normalize_feature_cols
 from .node_graph_ae import NodeGraphAE
+from .reference_backbone_edge_graph_ae import ReferenceBackboneEdgeGraphAE
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,8 @@ _MODEL_CAPS: dict[str, _ModelCaps] = {
     "edge_feature_graph": _ModelCaps(
         edge_features=True, reconstructs_edges=True, default_pt_node=True),
     "edge_graph": _ModelCaps(
+        edge_features=True, reconstructs_edges=True, default_pt_node=True),
+    "reference_backbone_edge_graph": _ModelCaps(
         edge_features=True, reconstructs_edges=True, default_pt_node=True),
     "dynamic_graph": _ModelCaps(dynamic=True, precomputed_edges=False),
     "dynamic_edge_graph": _ModelCaps(
@@ -60,10 +63,14 @@ class ModelSpec:
     latent_dim: int = 2
     use_bn: bool = True
     edge_dim: int = 0
+    edge_features: str = "log"
+    edge_pt_scale: str = "normalized"
     edge_weight: float = 1.0
     aggr: str = "mean"
     dropout: float = 0.0
     dyn_k: int = 16
+    contrastive_projection_dim: int = 0
+    contrastive_source: str = "latent"
     feature_cols: tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
@@ -84,23 +91,47 @@ class ModelSpec:
             )
         if self.edge_weight < 0.0:
             raise ValueError("edge_weight must be non-negative")
+        if self.edge_features not in {"linear", "log"}:
+            raise ValueError("edge_features must be 'linear' or 'log'")
+        if self.edge_pt_scale not in {"raw", "normalized"}:
+            raise ValueError("edge_pt_scale must be 'raw' or 'normalized'")
         if self.aggr not in {"mean", "add", "max"}:
             raise ValueError("aggr must be 'mean', 'add', or 'max'")
         if not 0.0 <= self.dropout <= 1.0:
             raise ValueError("dropout must be in [0, 1]")
         if self.dyn_k <= 0:
             raise ValueError("dyn_k must be positive")
-        if self.type == "edge_graph":
+        if self.contrastive_projection_dim < 0:
+            raise ValueError("contrastive_projection_dim must be non-negative")
+        if self.contrastive_source not in {"latent", "eb2"}:
+            raise ValueError("contrastive_source must be 'latent' or 'eb2'")
+        if (self.contrastive_source != "latent"
+                and not self.contrastive_projection_dim):
+            raise ValueError(
+                "a non-latent contrastive_source requires "
+                "contrastive_projection_dim > 0")
+        if self.contrastive_projection_dim and self.type != "edge_graph":
+            raise ValueError(
+                "contrastive_projection_dim is supported only by edge_graph"
+            )
+        if self.type in {
+            "edge_graph", "reference_backbone_edge_graph",
+        }:
             if self.hidden_dim < 2:
                 raise ValueError(
-                    "edge_graph decoder uses hidden_dim // 2; hidden_dim "
+                    f"{self.type} decoder uses hidden_dim // 2; hidden_dim "
                     "must be >= 2"
                 )
             if self.use_bn:
-                raise ValueError("edge_graph has no BatchNorm; use_bn must be False")
-            if self.backbone != "edgeconv":
-                raise ValueError("edge_graph has a fixed backbone='edgeconv'")
-        elif self.aggr != "mean" or self.dropout != 0.0:
+                raise ValueError(
+                    f"{self.type} has no BatchNorm; use_bn must be False")
+            if (self.type != "reference_backbone_edge_graph"
+                    and self.backbone != "edgeconv"):
+                raise ValueError(
+                    f"{self.type} has a fixed backbone='edgeconv'")
+        if self.type != "edge_graph" and (
+            self.aggr != "mean" or self.dropout != 0.0
+        ):
             raise ValueError(
                 "aggr and dropout are configurable only for edge_graph"
             )
@@ -144,14 +175,7 @@ class ModelSpec:
     @classmethod
     def from_dict(cls, values: dict) -> "ModelSpec":
         known = {field.name for field in fields(cls)}
-        # Drop retired experiment knobs so older checkpoints still load.
-        data = {
-            key: value for key, value in values.items()
-            if key not in {
-                "mask_fraction", "noise_std",
-                "dyn_first_knn", "dyn_input_norm",
-            }
-        }
+        data = dict(values)
         unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown ModelSpec fields: {sorted(unknown)}")
@@ -161,67 +185,42 @@ class ModelSpec:
 
 
 def create_model(spec: ModelSpec) -> nn.Module:
-    """Construct exactly one model from a validated :class:`ModelSpec`."""
-    builder = _MODEL_BUILDERS.get(spec.type)
-    if builder is None:
-        raise AssertionError(f"unhandled validated model type: {spec.type!r}")
-    return builder(spec)
-
-
-def _build_node_graph(spec: ModelSpec) -> nn.Module:
-    return NodeGraphAE(
-        in_dim=spec.in_dim, backbone=spec.backbone,
-        hidden_dim=spec.hidden_dim, latent_dim=spec.latent_dim,
-        use_bn=spec.use_bn, feature_cols=spec.feature_cols)
-
-
-def _build_edge_feature_node_graph(spec: ModelSpec) -> nn.Module:
-    return EdgeFeatureNodeGraphAE(
-        in_dim=spec.in_dim, edge_dim=spec.edge_dim,
-        backbone=spec.backbone, hidden_dim=spec.hidden_dim,
-        latent_dim=spec.latent_dim, use_bn=spec.use_bn,
-        feature_cols=spec.feature_cols)
-
-
-def _build_edge_feature_graph(spec: ModelSpec) -> nn.Module:
-    return EdgeFeatureGraphAE(
-        in_dim=spec.in_dim, edge_dim=spec.edge_dim,
-        backbone=spec.backbone, hidden_dim=spec.hidden_dim,
-        latent_dim=spec.latent_dim, use_bn=spec.use_bn,
-        edge_weight=spec.edge_weight, feature_cols=spec.feature_cols)
-
-
-def _build_edge_graph(spec: ModelSpec) -> nn.Module:
-    return EdgeGraphAE(
-        in_dim=spec.in_dim, edge_dim=spec.edge_dim,
-        hidden_dim=spec.hidden_dim, latent_dim=spec.latent_dim,
-        edge_weight=spec.edge_weight, aggr=spec.aggr,
-        dropout=spec.dropout, feature_cols=spec.feature_cols)
-
-
-def _build_dynamic_graph(spec: ModelSpec) -> nn.Module:
-    return DynamicGraphAE(
+    """Construct a model; each branch shows exactly which options it uses."""
+    common = dict(
         in_dim=spec.in_dim, hidden_dim=spec.hidden_dim,
-        latent_dim=spec.latent_dim, k=spec.dyn_k,
-        use_bn=spec.use_bn, feature_cols=spec.feature_cols)
-
-
-def _build_dynamic_edge_graph(spec: ModelSpec) -> nn.Module:
-    return DynamicEdgeGraphAE(
-        in_dim=spec.in_dim, edge_dim=spec.edge_dim,
-        hidden_dim=spec.hidden_dim, latent_dim=spec.latent_dim,
-        k=spec.dyn_k, use_bn=spec.use_bn,
-        edge_weight=spec.edge_weight, feature_cols=spec.feature_cols)
-
-
-_MODEL_BUILDERS = {
-    "node_graph": _build_node_graph,
-    "edge_feature_node_graph": _build_edge_feature_node_graph,
-    "edge_feature_graph": _build_edge_feature_graph,
-    "edge_graph": _build_edge_graph,
-    "dynamic_graph": _build_dynamic_graph,
-    "dynamic_edge_graph": _build_dynamic_edge_graph,
-}
+        latent_dim=spec.latent_dim, feature_cols=spec.feature_cols,
+    )
+    match spec.type:
+        case "node_graph":
+            return NodeGraphAE(
+                **common, backbone=spec.backbone, use_bn=spec.use_bn)
+        case "edge_feature_node_graph":
+            return EdgeFeatureNodeGraphAE(
+                **common, edge_dim=spec.edge_dim,
+                backbone=spec.backbone, use_bn=spec.use_bn)
+        case "edge_feature_graph":
+            return EdgeFeatureGraphAE(
+                **common, edge_dim=spec.edge_dim, edge_weight=spec.edge_weight,
+                backbone=spec.backbone, use_bn=spec.use_bn)
+        case "edge_graph":
+            return EdgeGraphAE(
+                **common, edge_dim=spec.edge_dim, edge_weight=spec.edge_weight,
+                aggr=spec.aggr, dropout=spec.dropout,
+                contrastive_projection_dim=spec.contrastive_projection_dim,
+                contrastive_source=spec.contrastive_source)
+        case "reference_backbone_edge_graph":
+            return ReferenceBackboneEdgeGraphAE(
+                **common, edge_dim=spec.edge_dim, edge_weight=spec.edge_weight,
+                backbone=spec.backbone)
+        case "dynamic_graph":
+            return DynamicGraphAE(
+                **common, k=spec.dyn_k, use_bn=spec.use_bn)
+        case "dynamic_edge_graph":
+            return DynamicEdgeGraphAE(
+                **common, edge_dim=spec.edge_dim, edge_weight=spec.edge_weight,
+                k=spec.dyn_k, use_bn=spec.use_bn)
+        case _:
+            raise ValueError(f"Unknown model type: {spec.type!r}")
 
 
 def load_model_and_spec(
@@ -233,14 +232,7 @@ def load_model_and_spec(
     payload = load_checkpoint(checkpoint, map_location=device)
     spec = ModelSpec.from_dict(payload["model"]["spec"])
     model = create_model(spec)
-    try:
-        model.load_state_dict(payload["model"]["state"])
-    except RuntimeError as exc:
-        raise RuntimeError(
-            f"Failed to load checkpoint {checkpoint} with ModelSpec "
-            f"{spec.to_dict()}. The checkpoint and ModelSpec describe "
-            "different model architectures."
-        ) from exc
+    model.load_state_dict(payload["model"]["state"])
     return model.to(device).eval(), spec
 
 

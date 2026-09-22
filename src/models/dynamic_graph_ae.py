@@ -23,36 +23,32 @@ class DenseDynamicEdgeBlock(nn.Module):
         self.bn = nn.BatchNorm1d(out_dim) if use_bn else nn.Identity()
 
     def forward(self, x: torch.Tensor, batch: torch.Tensor) -> torch.Tensor:
-        dense, mask = to_dense_batch(x, batch)  # (B, Nmax, F), (B, Nmax)
-        B, N, Fdim = dense.shape
-        if N <= 1:
+        dense, mask = to_dense_batch(x, batch)
+        num_graphs, max_nodes, feature_dim = dense.shape
+        if max_nodes <= 1:
             pooled = x.new_zeros((x.size(0), self.out_dim))
         else:
-            k = min(self.k, N - 1)
-            dist = torch.cdist(dense, dense)
-            eye = torch.eye(N, dtype=torch.bool, device=x.device).view(1, N, N)
-            valid = mask.unsqueeze(1) & mask.unsqueeze(2) & ~eye
-            dist = dist.masked_fill(~valid, float("inf"))
-            nn_idx = dist.topk(k, dim=-1, largest=False).indices  # (B, N, k)
+            neighbor_count = min(self.k, max_nodes - 1)
+            self_edges = torch.eye(max_nodes, dtype=torch.bool, device=x.device)
+            valid = mask.unsqueeze(1) & mask.unsqueeze(2) & ~self_edges
+            distances = torch.cdist(dense, dense).masked_fill(~valid, torch.inf)
+            neighbor_ids = distances.topk(neighbor_count, dim=-1, largest=False).indices
 
-            gather_idx = nn_idx.unsqueeze(-1).expand(B, N, k, Fdim)
-            dense_expanded = dense.unsqueeze(1).expand(B, N, N, Fdim)
-            neigh = torch.gather(dense_expanded, 2, gather_idx)
-            center = dense.unsqueeze(2).expand(B, N, k, Fdim)
-            msg_in = torch.cat([center, neigh - center], dim=-1)
-            msg = self.msg(msg_in.reshape(B * N * k, 2 * Fdim))
-            msg = msg.view(B, N, k, -1)
+            gather_ids = neighbor_ids.unsqueeze(-1).expand(
+                num_graphs, max_nodes, neighbor_count, feature_dim)
+            candidates = dense.unsqueeze(1).expand(num_graphs, max_nodes, max_nodes, feature_dim)
+            neighbors = torch.gather(candidates, 2, gather_ids)
+            centers = dense.unsqueeze(2).expand_as(neighbors)
+            messages = self.msg(torch.cat([centers, neighbors - centers], dim=-1))
 
-            neigh_valid = torch.gather(
-                mask.unsqueeze(1).expand(B, N, N), 2, nn_idx)
-            msg = msg.masked_fill(~neigh_valid.unsqueeze(-1), -torch.inf)
-            pooled = msg.max(dim=2).values
+            neighbor_valid = torch.gather(valid, 2, neighbor_ids)
+            messages = messages.masked_fill(~neighbor_valid.unsqueeze(-1), -torch.inf)
+            pooled = messages.max(dim=2).values
             pooled = torch.where(torch.isfinite(pooled), pooled,
                                  torch.zeros_like(pooled))
             pooled = pooled[mask]
 
-        out = pooled + self.skip(x)
-        return F.relu(self.bn(out))
+        return F.relu(self.bn(pooled + self.skip(x)))
 
 
 class DynamicGraphAE(ReconstructionMixin, nn.Module):
@@ -74,14 +70,10 @@ class DynamicGraphAE(ReconstructionMixin, nn.Module):
         self.use_bn = use_bn
         self.feature_cols = normalize_feature_cols(feature_cols, in_dim)
         self.input_bn = nn.BatchNorm1d(in_dim) if use_bn else nn.Identity()
-        self.encoder = nn.ModuleList([
-            DenseDynamicEdgeBlock(in_dim, hidden_dim, k=k,
-                                  hidden_dim=hidden_dim, use_bn=use_bn),
-            DenseDynamicEdgeBlock(hidden_dim, hidden_dim, k=k,
-                                  hidden_dim=hidden_dim, use_bn=use_bn),
-            DenseDynamicEdgeBlock(hidden_dim, hidden_dim, k=k,
-                                  hidden_dim=hidden_dim, use_bn=use_bn),
-        ])
+        self.encoder = nn.ModuleList(
+            DenseDynamicEdgeBlock(input_dim, hidden_dim, k=k,
+                                  hidden_dim=hidden_dim, use_bn=use_bn)
+            for input_dim in (in_dim, hidden_dim, hidden_dim))
         self.to_latent = nn.Linear(hidden_dim, latent_dim)
         self.decoder = DenseDynamicEdgeBlock(latent_dim, hidden_dim, k=k,
                                              hidden_dim=hidden_dim,
@@ -89,12 +81,12 @@ class DynamicGraphAE(ReconstructionMixin, nn.Module):
         self.head = nn.Linear(hidden_dim, in_dim)
 
     def forward(self, x: torch.Tensor, batch: torch.Tensor) -> Reconstruction:
-        h = self.input_bn(x)
+        hidden = self.input_bn(x)
         for block in self.encoder:
-            h = block(h, batch)
-        z = self.to_latent(h)
-        recon = self.head(self.decoder(z, batch))
-        return Reconstruction(node=recon, latent=z)
+            hidden = block(hidden, batch)
+        latent = self.to_latent(hidden)
+        recon = self.head(self.decoder(latent, batch))
+        return Reconstruction(node=recon, latent=latent)
 
     def _reconstruct(self, batch):
         target = select_node_features(batch, self.in_dim, self.feature_cols)

@@ -4,8 +4,12 @@ import numpy as np
 import torch
 
 from src.data.iterate import prefetch, shard_iter
+from src.data.grouping import group_events
+from src.objectives.latent_cycle import latent_cycle_scores
 
 EVENT_SCORE_AGGREGATIONS = ("sum", "mean", "max", "min", "pt_weighted")
+CYCLE_SCORE_MODES = ("cycle", "cycle_local", "cycle_global")
+ANOMALY_SCORE_MODES = ("reconstruction",) + CYCLE_SCORE_MODES
 
 
 @dataclass(frozen=True)
@@ -88,50 +92,60 @@ def aggregate_event_scores(
             "non-empty and the same length"
         )
 
-    order = np.argsort(event_ids, kind="stable")
-    sorted_ids = event_ids[order]
-    sorted_scores = jet_scores[order]
-    sorted_labels = labels[order]
-    ordered, starts, counts = np.unique(
-        sorted_ids, return_index=True, return_counts=True)
-    label_min = np.minimum.reduceat(sorted_labels, starts)
-    label_max = np.maximum.reduceat(sorted_labels, starts)
-    if np.any(label_min != label_max):
-        bad = ordered[label_min != label_max][:5].tolist()
-        raise ValueError(f"inconsistent labels inside event ids {bad}")
+    groups = group_events(
+        event_ids, labels, label_error="inconsistent labels inside event ids")
+    sorted_scores = jet_scores[groups.order]
+    starts = groups.starts
 
     if aggregation == "sum":
         scores = np.add.reduceat(sorted_scores, starts)
     elif aggregation == "mean":
-        scores = np.add.reduceat(sorted_scores, starts) / counts
+        scores = np.add.reduceat(sorted_scores, starts) / groups.counts
     elif aggregation == "max":
         scores = np.maximum.reduceat(sorted_scores, starts)
     elif aggregation == "min":
         scores = np.minimum.reduceat(sorted_scores, starts)
     else:
-        sorted_strengths = jet_strengths[order]
+        sorted_strengths = jet_strengths[groups.order]
         weighted = np.add.reduceat(sorted_scores * sorted_strengths, starts)
         total = np.add.reduceat(sorted_strengths, starts)
         scores = weighted / np.maximum(total, 1e-12)
     return EventScores(
         scores=np.asarray(scores, dtype=np.float64),
-        labels=np.asarray(label_min, dtype=np.int64),
-        event_ids=np.asarray(ordered, dtype=np.int64),
+        labels=groups.labels,
+        event_ids=groups.event_ids,
     )
 
 
 @torch.no_grad()
 def score_events(model, ds, device, batch_size=2048, indices=None,
-                 aggregation: str = "sum") -> EventScores:
+                 aggregation: str = "sum",
+                 score_mode: str = "reconstruction",
+                 cycle_global_mode: str = "pooled") -> EventScores:
     idx = _scoring_indices(ds, indices, batch_size)
     _require_two_jets(ds, idx)
+    if score_mode not in ANOMALY_SCORE_MODES:
+        raise ValueError(
+            f"score_mode must be one of {ANOMALY_SCORE_MODES}, "
+            f"got {score_mode!r}")
     jet_scores, event_ids, labels, strengths = [], [], [], []
     model.eval()
     for batch in prefetch(shard_iter(
             ds, idx, batch_size,
             shuffle_shards=False, shuffle_within=False, device=device),
             depth=2):
-        jet_scores.append(model.anomaly_score(batch).view(-1).cpu())
+        if score_mode == "reconstruction":
+            scores = model.anomaly_score(batch)
+        else:
+            output, _, _ = model._reconstruct(batch)
+            cycle = latent_cycle_scores(model, output, batch,
+                                        global_mode=cycle_global_mode)
+            scores = {
+                "cycle": cycle.total,
+                "cycle_local": cycle.local,
+                "cycle_global": cycle.global_,
+            }[score_mode]
+        jet_scores.append(scores.view(-1).cpu())
         event_ids.append(batch.event_id.view(-1).cpu())
         labels.append(batch.y.view(-1).cpu())
         if aggregation == "pt_weighted":

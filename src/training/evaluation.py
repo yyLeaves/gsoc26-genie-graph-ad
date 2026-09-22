@@ -8,6 +8,7 @@ from src.data.iterate import prefetch, shard_iter
 from src.eval.metrics import summarize_scores
 from src.eval.scoring import score_events
 from src.models import LossTerms, load_model
+from src.models.reconstruction import mean_loss, reconstruction_scores
 
 
 def _write_json(path, payload):
@@ -21,28 +22,38 @@ def _save_scores(output_dir, stem, scores, labels):
 
 
 @torch.no_grad()
-def eval_loss_components(model, ds, indices, batch_size, device):
+def eval_loss_components(model, ds, indices, batch_size, device, node_reduction="mse",
+                         prefetch_batches=4):
     """Return total/node/edge losses averaged over the selected graphs."""
     if len(indices) == 0:
         raise ValueError("Loss evaluation requires at least one jet.")
     model.eval()
-    sum_total = sum_node = sum_edge = n = 0.0
+    sum_total = sum_node = sum_edge = n_seen = 0.0
     for batch in prefetch(shard_iter(
             ds, indices, batch_size,
-            shuffle_shards=False, shuffle_within=False, device=device)):
-        losses = model.loss(batch)
-        b = batch.num_graphs
-        sum_total += losses.total.item() * b
-        sum_node += losses.node.item() * b
-        sum_edge += losses.edge.item() * b
-        n += b
-    return LossTerms(total=sum_total / n, node=sum_node / n, edge=sum_edge / n)
+            shuffle_shards=False, shuffle_within=False, device=device),
+            depth=prefetch_batches):
+        if node_reduction == "mse":
+            losses = model.loss(batch)
+        else:
+            output, node_target, edge_target = model._reconstruct(batch)
+            losses = mean_loss(reconstruction_scores(
+                output, node_target, batch, edge_target=edge_target,
+                edge_weight=getattr(model, "edge_weight", 1.0),
+                node_reduction=node_reduction))
+        num_graphs = batch.num_graphs
+        sum_total += losses.total.item() * num_graphs
+        sum_node += losses.node.item() * num_graphs
+        sum_edge += losses.edge.item() * num_graphs
+        n_seen += num_graphs
+    return LossTerms(total=sum_total / n_seen, node=sum_node / n_seen, edge=sum_edge / n_seen)
 
 
 def evaluate_epoch(model, ds, splits, args, device, compute_metrics=True):
     """Val loss every call; AUC/SIC only when ``compute_metrics``."""
     val = eval_loss_components(
-        model, ds, splits.val_idx, args.batch_size * 2, device)
+        model, ds, splits.val_idx, args.batch_size * 2, device,
+        node_reduction=args.node_reconstruction, prefetch_batches=args.prefetch_batches)
     ev = {
         "val_loss": val.total,
         "val_node_loss": val.node,
@@ -53,7 +64,9 @@ def evaluate_epoch(model, ds, splits, args, device, compute_metrics=True):
     scored = score_events(
         model, ds, device, batch_size=args.batch_size * 2,
         indices=splits.eval_idx,
-        aggregation=getattr(args, "event_score_agg", "sum"))
+        aggregation=args.event_score_agg,
+        score_mode=args.anomaly_score,
+        cycle_global_mode=args.cycle_global_mode)
     scores, labels = scored.scores, scored.labels
     m = summarize_scores(scores, labels)
     bkg, sig = scores[labels == 0], scores[labels == 1]
@@ -72,7 +85,9 @@ def _evaluate_checkpoint(ds, final_idx, checkpoint_path, name, epoch,
     model = load_model(checkpoint_path, device)
     scored = score_events(
         model, ds, device, batch_size=args.batch_size * 2,
-        indices=final_idx, aggregation=args.event_score_agg)
+        indices=final_idx, aggregation=args.event_score_agg,
+        score_mode=args.anomaly_score,
+        cycle_global_mode=args.cycle_global_mode)
     scores, labels = scored.scores, scored.labels
     _save_scores(output_dir, name, scores, labels)
     m = summarize_scores(scores, labels)
@@ -91,6 +106,7 @@ def _evaluate_checkpoint(ds, final_idx, checkpoint_path, name, epoch,
         "n_background_events": m["n_background"],
         "n_signal_events": m["n_signal"],
         "event_score_aggregation": args.event_score_agg,
+        "anomaly_score": args.anomaly_score,
     }
     _write_json(output_dir / f"metrics_{name}.json", metrics)
     return metrics, scores, labels

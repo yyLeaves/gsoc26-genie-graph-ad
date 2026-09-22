@@ -92,11 +92,6 @@ def _print_summary(metadata: dict, elapsed_seconds: float) -> None:
     )
 
 
-def _validate_shard_size(shard_size: int) -> None:
-    if shard_size <= 0:
-        raise ValueError(f"shard_size must be positive, got {shard_size}")
-
-
 def preprocess_file(
     h5_path: str | Path,
     output_dir: str | Path,
@@ -105,7 +100,8 @@ def preprocess_file(
     labels_path: str | Path | None = None,
     shard_size: int = 8192,
 ) -> None:
-    _validate_shard_size(shard_size)
+    if shard_size <= 0:
+        raise ValueError(f"shard_size must be positive, got {shard_size}")
 
     h5_path = str(h5_path)
     output_dir = str(output_dir)

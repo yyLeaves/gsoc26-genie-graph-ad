@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import json
 import logging
 import sys
@@ -25,7 +25,16 @@ from src.training.artifacts import (capture_training_state,
                                     save_training_checkpoint,
                                     write_run_config)
 from src.training.splits import build_splits
-from src.training.topo_reg import compute_topo_reg
+from src.training.options import validate_objectives
+from src.objectives.latent_cycle import latent_cycle_scores, select_cycle_component
+from src.objectives.perturbed_contrast import perturbed_graph_contrast
+from src.objectives.edge_relation_contrast import EdgeRelationContrast
+from src.objectives.edge_relation_vicreg import EdgeRelationVICReg
+from src.objectives.topo_reg import (
+    compute_topo_regs,
+    parse_lambda_list,
+    parse_topo_reg_spec,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +45,10 @@ class TrainEpochStats:
     node: float
     edge: float
     reg: float = 0.0
+    cycle: float = 0.0
+    contrast: float = 0.0
+    relation: float = 0.0
+    relation_diagnostic: float = 0.0
 
 FIRST_NODE_FEATURE_SEMANTICS = {
     "raw": "raw_pt",
@@ -53,17 +66,17 @@ def setup_logger(
     log_path = output_dir / f"{name}.log"
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    for h in list(logger.handlers):
-        logger.removeHandler(h)
-        h.close()
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
     fmt = logging.Formatter("%(message)s")
     mode = "a" if append else "w"
-    for h in [
+    for handler in [
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(log_path, mode),
     ]:
-        h.setFormatter(fmt)
-        logger.addHandler(h)
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
     logger.propagate = False
     return logger
 
@@ -98,17 +111,29 @@ def build_model(args, ds, device, log):
     edges = ds.meta.get("edges") or {}
     edge_dim = (int(edges.get("feature_dim", 0))
                 if args.model in EDGE_FEATURE_MODEL_TYPES else 0)
+    contrast_weight = args.contrast_weight
+    projection_dim = args.contrast_projection_dim
+    contrast_source = args.contrast_source
+    needs_projection = contrast_weight > 0 or args.cycle_global_mode != "pooled"
     spec = ModelSpec(
         type=args.model,
         in_dim=in_dim,
         backbone=args.backbone,
         hidden_dim=args.hidden_dim,
         latent_dim=args.latent_dim,
-        use_bn=False if args.model == "edge_graph" else not args.no_bn,
+        use_bn=(False if args.model in {
+            "edge_graph", "reference_backbone_edge_graph",
+        } else not args.no_bn),
         edge_dim=edge_dim,
+        edge_features=edges["features"] if edge_dim else "log",
+        edge_pt_scale=edges["pt_scale"] if edge_dim else "normalized",
         edge_weight=args.edge_weight,
         aggr=args.aggr,
         dyn_k=args.dyn_k,
+        contrastive_projection_dim=(projection_dim
+                                    if needs_projection else 0),
+        contrastive_source=(contrast_source
+                            if needs_projection else "latent"),
         feature_cols=feature_cols,
     )
     ensure_dataset_matches(ds, spec)
@@ -139,7 +164,7 @@ def build_optimizer_scheduler(args, model, ds, train_idx, log):
     total_steps = None
     if sched_per_batch:
         total_steps = steps_per_epoch * args.epochs
-        pct_start = min(max(max(1, int(0.02 * total_steps)) / total_steps,
+        pct_start = min(max(max(2, int(0.02 * total_steps)) / total_steps,
                             0.01), 0.9)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, max_lr=args.lr, total_steps=total_steps,
@@ -167,10 +192,36 @@ def build_optimizer_scheduler(args, model, ds, train_idx, log):
     log.info(f"Eval every : {args.eval_interval} epochs  (AUC + SIC on eval_set)")
     log.info(f"Batch size : {args.batch_size}")
     log.info(f"Score agg  : {args.event_score_agg}")
-    topo_reg = getattr(args, "topo_reg", "none") or "none"
+    log.info(f"Jet score  : {args.anomaly_score}")
+    topo_reg = args.topo_reg
     if topo_reg != "none":
-        log.info(f"Topo reg  : {topo_reg}  λ={args.lambda_topo}  "
+        regs = parse_topo_reg_spec(topo_reg)
+        lams = parse_lambda_list(args.lambda_topo, len(regs))
+        log.info(f"Topo reg  : {regs}  λ={lams}  "
+                 f"normalize={args.topo_norm}  "
                  f"unique_k={args.unique_k}  (val/anomaly still recon-only)")
+    cycle_weight = args.cycle_weight
+    if cycle_weight:
+        cycle_component = args.cycle_component
+        log.info(f"Cycle     : EB3 {cycle_component}  β={cycle_weight}  "
+                 f"global={args.cycle_global_mode}")
+    contrast_weight = args.contrast_weight
+    if contrast_weight:
+        log.info(
+            "Contrast  : clean/weight-perturbed graph embeddings  "
+            f"α={contrast_weight}  η={args.perturb_scale}  "
+            f"T={args.contrast_temperature}  "
+            f"projection={args.contrast_projection_dim}  "
+            f"source={args.contrast_source}"
+        )
+    relation_objective = args.relation_objective
+    if relation_objective != "none":
+        log.info(
+            f"Relation  : {relation_objective}  "
+            f"weight={args.relation_weight}  "
+            f"node_mask={args.relation_node_mask}  "
+            f"edge_mask={args.relation_edge_mask}"
+        )
     return optimizer, scheduler, sched_per_batch, total_steps, sched_desc
 
 
@@ -178,55 +229,109 @@ def train_one_epoch(model, ds, splits, optimizer, scheduler, sched_per_batch,
                     total_steps, args, device, rng):
     """Run one training pass and return mean recon + optional topo-reg stats.
 
-    Returned ``total/node/edge`` are *reconstruction* means (same units as the
-    reference runs).  When ``--topo_reg`` is set the optimized objective is
-    ``recon + λ * reg``.
+    Returned ``total/node/edge`` are *reconstruction* means using the selected
+    node loss. When ``--topo_reg`` is set the optimized objective is
+    ``recon + sum_i λ_i R_i``.
     """
     model.train()
-    sum_total = sum_node = sum_edge = sum_reg = n_seen = 0.0
-    topo_reg = getattr(args, "topo_reg", "none") or "none"
-    lambda_topo = float(getattr(args, "lambda_topo", 0.0) or 0.0)
-    unique_k = int(getattr(args, "unique_k", 6))
+    totals = {field.name: 0.0 for field in fields(TrainEpochStats)}
+    n_seen = 0.0
+    reg_names = parse_topo_reg_spec(args.topo_reg)
+    reg_lams = parse_lambda_list(
+        args.lambda_topo, len(reg_names))
+    if args.relation_objective == "nce":
+        relation_objective = EdgeRelationContrast(
+            edge_dim=int(model.edge_dim),
+            mask_fraction=args.relation_edge_mask,
+            temperature=args.relation_temperature,
+        )
+    elif args.relation_objective == "vicreg":
+        relation_objective = EdgeRelationVICReg(
+            node_mask_fraction=args.relation_node_mask,
+            edge_mask_fraction=args.relation_edge_mask,
+            moment_weight=args.relation_moment_weight,
+        )
+    else:
+        relation_objective = None
     for batch in prefetch(shard_iter(
             ds, splits.train_idx, args.batch_size,
-            shuffle_shards=True, shuffle_within=True, rng=rng, device=device)):
+            shuffle_shards=True, shuffle_within=True, rng=rng, device=device),
+            depth=args.prefetch_batches):
         optimizer.zero_grad()
         output, node_target, edge_target = model._reconstruct(batch)
         losses = mean_loss(reconstruction_scores(
             output, node_target, batch,
             edge_target=edge_target,
             edge_weight=getattr(model, "edge_weight", 1.0),
+            node_reduction=args.node_reconstruction,
         ))
-        if topo_reg != "none" and lambda_topo != 0.0:
-            reg = compute_topo_reg(
-                topo_reg, output.latent, batch, unique_k=unique_k,
+        if reg_names and any(lam != 0.0 for lam in reg_lams):
+            weighted, unweighted = compute_topo_regs(
+                reg_names, output.latent, batch, lambdas=reg_lams,
+                unique_k=args.unique_k, normalize=args.topo_norm,
                 model=model, node_target=node_target,
                 edge_target=edge_target)
-            opt_loss = losses.total + lambda_topo * reg
+            opt_loss = losses.total + weighted
+            reg = unweighted
         else:
             reg = losses.total.new_zeros(())
             opt_loss = losses.total
+        if args.cycle_weight:
+            cycle = select_cycle_component(
+                latent_cycle_scores(model, output, batch,
+                                    global_mode=args.cycle_global_mode),
+                args.cycle_component).mean()
+            opt_loss = opt_loss + args.cycle_weight * cycle
+        else:
+            cycle = losses.total.new_zeros(())
+        if args.contrast_weight and batch.num_graphs > 1:
+            contrast = perturbed_graph_contrast(
+                model, output.latent, node_target, batch, edge_target,
+                scale=args.perturb_scale,
+                temperature=args.contrast_temperature,
+                source=args.contrast_source,
+                center=args.contrast_center,
+            ).loss
+            opt_loss = opt_loss + args.contrast_weight * contrast
+        else:
+            contrast = losses.total.new_zeros(())
+        if relation_objective is not None:
+            if args.relation_objective == "nce":
+                relation_terms = relation_objective(
+                    model, node_target, batch.edge_index, edge_target,
+                    batch.batch, batch.num_graphs)
+                relation = relation_terms.loss
+                relation_diagnostic = relation_terms.accuracy
+            else:
+                relation_terms = relation_objective(
+                    model, output, node_target, batch.edge_index, edge_target,
+                    batch.batch, batch.num_graphs)
+                relation = relation_terms.loss
+                relation_diagnostic = relation_terms.affected_fraction
+            opt_loss = opt_loss + args.relation_weight * relation
+        else:
+            relation = losses.total.new_zeros(())
+            relation_diagnostic = losses.total.new_zeros(())
         opt_loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         if sched_per_batch and scheduler.last_epoch + 1 < total_steps:
             scheduler.step()
-        b = batch.num_graphs
-        sum_total += losses.total.item() * b
-        sum_node += losses.node.item() * b
-        sum_edge += losses.edge.item() * b
-        sum_reg += float(reg.detach()) * b
-        n_seen += b
+        batch_stats = dict(
+            total=losses.total, node=losses.node, edge=losses.edge,
+            reg=reg, cycle=cycle, contrast=contrast, relation=relation,
+            relation_diagnostic=relation_diagnostic)
+        for name, value in batch_stats.items():
+            totals[name] += value.item() * batch.num_graphs
+        n_seen += batch.num_graphs
     if not sched_per_batch:
         scheduler.step()
-    return TrainEpochStats(
-        total=sum_total / n_seen, node=sum_node / n_seen,
-        edge=sum_edge / n_seen, reg=sum_reg / n_seen)
+    return TrainEpochStats(**{name: total / n_seen for name, total in totals.items()})
 
 
 def _open_run(args):
     """Create a fresh run dir, or reopen an interrupted one for resume."""
-    resume_value = getattr(args, "resume", None)
+    resume_value = args.resume
     if not resume_value:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_name = f"{args.model}_{args.backbone}_{ts}"
@@ -308,7 +413,7 @@ def _restore_training_state(payload, args, model, model_spec, ds, splits,
 
 
 def _maybe_update_monitor(args, do_metrics, ev, epoch, monitor_best):
-    if not (getattr(args, "save_monitor_best", False) and do_metrics
+    if not (args.save_monitor_best and do_metrics
             and np.isfinite(ev["auc"])
             and (monitor_best is None or ev["auc"] > monitor_best["auc"])):
         return monitor_best, False
@@ -346,6 +451,7 @@ def _log_epoch(log, epoch, train_losses, ev, do_metrics, improved, epoch_s):
 
 def train(args):
     """Run one training job end to end; returns the final metrics dict."""
+    validate_objectives(args)
     output_dir, run_name, ts, log, resume_payload = _open_run(args)
     log.info(f"Run      : {run_name}")
     log.info(f"Output   : {output_dir}")
@@ -414,9 +520,25 @@ def train(args):
             "monitor_auc_improved": monitor_improved,
             "epoch_time_s": time.time() - ep_t0,
         }
-        if (getattr(args, "topo_reg", "none") or "none") != "none":
+        if (args.topo_reg) != "none":
             entry["train_reg"] = float(train_losses.reg)
-            entry["lambda_topo"] = float(args.lambda_topo)
+            entry["lambda_topo"] = args.lambda_topo
+        if args.cycle_weight:
+            entry["train_cycle_loss"] = float(train_losses.cycle)
+            entry["cycle_weight"] = args.cycle_weight
+            entry["cycle_component"] = args.cycle_component
+        if args.contrast_weight:
+            entry["train_contrast_loss"] = float(train_losses.contrast)
+            entry["contrast_weight"] = args.contrast_weight
+            entry["perturb_scale"] = args.perturb_scale
+            entry["contrast_temperature"] = args.contrast_temperature
+            entry["contrast_source"] = args.contrast_source
+        if args.relation_objective != "none":
+            entry["train_relation_loss"] = float(train_losses.relation)
+            entry["train_relation_diagnostic"] = float(
+                train_losses.relation_diagnostic)
+            entry["relation_objective"] = args.relation_objective
+            entry["relation_weight"] = args.relation_weight
         if do_metrics:
             entry["score_sep"] = ev["mean_score_sig"] - ev["mean_score_bkg"]
         history.append(entry)

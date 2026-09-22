@@ -13,19 +13,17 @@ class GraphEncoder(nn.Module):
                  latent_dim: int, use_bn: bool = True):
         super().__init__()
         self.input_bn = nn.BatchNorm1d(in_dim) if use_bn else nn.Identity()
-        self.layers = nn.ModuleList([
-            ConvBlock(backbone, in_dim, hidden_dim, use_bn=use_bn),
-            ConvBlock(backbone, hidden_dim, hidden_dim, use_bn=use_bn),
-            ConvBlock(backbone, hidden_dim, hidden_dim, use_bn=use_bn),
-        ])
+        self.layers = nn.ModuleList(
+            ConvBlock(backbone, input_dim, hidden_dim, use_bn=use_bn)
+            for input_dim in (in_dim, hidden_dim, hidden_dim))
         self.proj = nn.Linear(hidden_dim, latent_dim)
 
     def forward(self, x: torch.Tensor,
                 edge_index: torch.Tensor) -> torch.Tensor:
-        h = self.input_bn(x)
+        hidden = self.input_bn(x)
         for layer in self.layers:
-            h = layer(h, edge_index)
-        return self.proj(h)
+            hidden = layer(hidden, edge_index)
+        return self.proj(hidden)
 
 
 class GraphDecoder(nn.Module):
@@ -79,9 +77,9 @@ class NodeGraphAE(ReconstructionMixin, nn.Module):
 
     def forward(self, x: torch.Tensor,
                 edge_index: torch.Tensor) -> Reconstruction:
-        z = self.encoder(x, edge_index)
-        recon = self.decoder(z, edge_index)
-        return Reconstruction(node=recon, latent=z)
+        latent = self.encoder(x, edge_index)
+        recon = self.decoder(latent, edge_index)
+        return Reconstruction(node=recon, latent=latent)
 
     def _reconstruct(self, batch):
         target = select_node_features(batch, self.in_dim, self.feature_cols)

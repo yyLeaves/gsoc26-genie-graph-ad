@@ -21,9 +21,7 @@ def to_pseudojets(pt, eta, phi) -> ak.Array:
 
 def sum_p4(jet: Jet) -> tuple[float, float, float, float]:
     """Sum 4-momentum of a jet's massless constituents."""
-    pt, eta, phi = jet
-    return ((pt * np.cos(phi)).sum(), (pt * np.sin(phi)).sum(),
-            (pt * np.sinh(eta)).sum(), (pt * np.cosh(eta)).sum())
+    return tuple(component.sum() for component in p4_components(*jet))
 
 
 def dijet_mass(jet1: Jet, jet2: Jet) -> float:

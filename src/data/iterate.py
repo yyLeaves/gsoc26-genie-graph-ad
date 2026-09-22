@@ -27,21 +27,20 @@ def shard_iter(ds: JetDataset, indices: np.ndarray, batch_size: int,
     # flat indices → shard_id → local positions
     shard_to_local: dict = defaultdict(list)
     for idx in indices:
-        si = int(idx) // ds.shard_size
-        li = int(idx) %  ds.shard_size
-        shard_to_local[si].append(li)
+        shard_id, local_index = divmod(int(idx), ds.shard_size)
+        shard_to_local[shard_id].append(local_index)
 
     shard_ids = list(shard_to_local.keys())
-    if shuffle_shards and rng is not None:
+    if shuffle_shards:
         rng.shuffle(shard_ids)
 
-    for si in shard_ids:
-        shard  = ds.load_shard(si)           # list[Data], LRU-cached
-        locs   = shard_to_local[si]
-        if shuffle_within and rng is not None:
-            rng.shuffle(locs)
-        for i in range(0, len(locs), batch_size):
-            items = [shard[j] for j in locs[i : i + batch_size]]
+    for shard_id in shard_ids:
+        shard = ds.load_shard(shard_id)
+        local_indices = shard_to_local[shard_id]
+        if shuffle_within:
+            rng.shuffle(local_indices)
+        for start in range(0, len(local_indices), batch_size):
+            items = [shard[j] for j in local_indices[start : start + batch_size]]
             batch = Batch.from_data_list(items)
             if device is not None:
                 batch = batch.to(device)
@@ -49,42 +48,42 @@ def shard_iter(ds: JetDataset, indices: np.ndarray, batch_size: int,
 
 
 def prefetch(batches, depth: int = 4):
-    """Run a batch iterator in a background thread, `depth` ahead.
-
-    Collation + shard loading are CPU-bound and the model is tiny, so without
-    this the GPU idles waiting for batches.
-    """
-    if depth <= 0:
-        raise ValueError(f"prefetch depth must be positive, got {depth}")
-    q: queue.Queue = queue.Queue(maxsize=depth)
-    END = object()
+    """Prefetch in a background thread, or iterate synchronously at depth 0."""
+    if depth == 0:
+        yield from batches
+        return
+    if depth < 0:
+        raise ValueError(f"prefetch depth must be nonnegative, got {depth}")
+    buffer: queue.Queue = queue.Queue(maxsize=depth)
+    end = object()
     stop = threading.Event()
+
+    def enqueue(item):
+        while not stop.is_set():
+            try:
+                buffer.put(item, timeout=0.05)
+                return True
+            except queue.Full:
+                pass
+        return False
 
     def producer():
         try:
-            for b in batches:
-                if stop.is_set():
+            for batch in batches:
+                if not enqueue(batch):
                     return
-                q.put(b)
-            q.put(END)
-        except BaseException as e:        # propagate to consumer
-            q.put(e)
+            enqueue(end)
+        except BaseException as error:
+            enqueue(error)
 
     threading.Thread(target=producer, daemon=True).start()
     try:
         while True:
-            item = q.get()
-            if item is END:
+            item = buffer.get()
+            if item is end:
                 return
             if isinstance(item, BaseException):
                 raise item
             yield item
     finally:
-        # consumer left early: signal + drain so a blocked q.put() unblocks and
-        # the daemon thread exits — else it leaks, pinning GPU-resident batches
         stop.set()
-        try:
-            while True:
-                q.get_nowait()
-        except queue.Empty:
-            pass

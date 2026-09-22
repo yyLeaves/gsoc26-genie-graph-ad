@@ -23,19 +23,23 @@ def _binary_scores(scores, labels) -> tuple[np.ndarray, np.ndarray]:
     return scores, labels
 
 
+def _score_groups(scores, labels):
+    """Sort descending and locate the final row of each tied score group."""
+    order = np.argsort(-scores, kind="mergesort")
+    sorted_scores = scores[order]
+    group_ends = np.flatnonzero(np.r_[np.diff(sorted_scores) != 0, True])
+    return sorted_scores, labels[order], group_ends
+
+
 def _sic(scores: np.ndarray, labels: np.ndarray,
          min_background_efficiency: float) -> SICResult:
     if (labels == 1).sum() == 0 or (labels == 0).sum() == 0:
         empty = np.array([], dtype=np.float64)
         return SICResult(float("nan"), float("nan"), empty, empty)
 
-    order = np.argsort(-scores, kind="mergesort")
-    sorted_scores = scores[order]
-    sorted_labels = labels[order]
+    sorted_scores, sorted_labels, group_idx = _score_groups(scores, labels)
     is_sig = sorted_labels == 1
     is_bkg = sorted_labels == 0
-    group_end = np.r_[np.diff(sorted_scores) != 0, True]
-    group_idx = np.flatnonzero(group_end)
     thresholds = sorted_scores[group_idx]
     eps_S = np.cumsum(is_sig)[group_idx] / is_sig.sum()
     eps_B = np.cumsum(is_bkg)[group_idx] / is_bkg.sum()
@@ -128,17 +132,13 @@ def best_f1_metrics(scores: np.ndarray, labels: np.ndarray) -> dict:
     scores, labels = _binary_scores(scores, labels)
     if len(scores) == 0:
         return _classification(scores, labels, float("nan"))
-    order = np.argsort(-scores, kind="mergesort")
-    sorted_scores = scores[order]
-    is_signal = labels[order] == 1
+    sorted_scores, sorted_labels, group_idx = _score_groups(scores, labels)
+    is_signal = sorted_labels == 1
     total_signal = int(is_signal.sum())
     if total_signal == 0:
         return _classification(scores, labels, float(sorted_scores[0]))
-    group_end = np.r_[np.diff(sorted_scores) != 0, True]
-    group_idx = np.flatnonzero(group_end)
     tp = np.cumsum(is_signal)[group_idx]
     selected = group_idx + 1
-    fp = selected - tp
     precision = tp / selected
     recall = tp / total_signal
     denominator = precision + recall

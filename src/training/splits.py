@@ -92,23 +92,19 @@ def _pilot_all_idx(ds, fraction, log) -> np.ndarray:
     """First ``fraction`` of shards, dropping jets from incomplete events."""
     if not 0 < fraction <= 1:
         raise ValueError(f"fraction must be in (0, 1], got {fraction}")
-    if fraction < 1.0:
-        n_use = max(1, round(ds.n_shards * fraction))
-        limit = min(n_use * ds.shard_size, len(ds))
-        log.info(f"\nPilot run: fraction={fraction}  "
-                 f"→ first {n_use}/{ds.n_shards} shards ({limit:,} jets)")
-    else:
-        limit = len(ds)
+    if fraction == 1.0:
+        return np.arange(len(ds), dtype=np.int64)
+
+    n_use = max(1, round(ds.n_shards * fraction))
+    limit = min(n_use * ds.shard_size, len(ds))
+    log.info(f"\nPilot run: fraction={fraction}  "
+             f"→ first {n_use}/{ds.n_shards} shards ({limit:,} jets)")
 
     all_eids = np.asarray(ds.event_ids, dtype=np.int64)
     sel_ids, sel_counts = np.unique(all_eids[:limit], return_counts=True)
     full_ids, full_counts = np.unique(all_eids, return_counts=True)
-    full_count = dict(zip(full_ids.tolist(), full_counts.tolist()))
-    complete = {int(e) for e, c in zip(sel_ids, sel_counts)
-                if int(c) == full_count[int(e)]}
-    all_idx = np.array(
-        [i for i, e in enumerate(all_eids[:limit]) if int(e) in complete],
-        dtype=np.int64)
+    complete = sel_ids[sel_counts == full_counts[np.searchsorted(full_ids, sel_ids)]]
+    all_idx = np.flatnonzero(np.isin(all_eids[:limit], complete))
     if len(all_idx) < limit:
         log.info(f"Pilot event clamp: dropped {limit - len(all_idx):,} "
                  "boundary jet(s) from incomplete event(s)")
@@ -118,47 +114,49 @@ def _pilot_all_idx(ds, fraction, log) -> np.ndarray:
 def _event_maps(all_idx, event_ids, labels):
     event_label: dict[int, int] = {}
     by_event: dict[int, list[int]] = {}
-    for idx, eid, y in zip(all_idx, event_ids, labels):
-        eid, y = int(eid), int(y)
-        prev = event_label.get(eid)
-        if prev is not None and prev != y:
+    for index, event_id, label in zip(all_idx, event_ids, labels):
+        event_id, label = int(event_id), int(label)
+        previous = event_label.get(event_id)
+        if previous is not None and previous != label:
             raise ValueError(
-                f"inconsistent labels inside event_id={eid}: {prev} vs {y}")
-        event_label[eid] = y
-        by_event.setdefault(eid, []).append(int(idx))
-    bg = np.array(sorted(e for e, y in event_label.items() if y == 0),
-                  dtype=np.int64)
-    sig = np.array(sorted(e for e, y in event_label.items() if y == 1),
-                   dtype=np.int64)
-    return event_label, by_event, bg, sig
+                f"inconsistent labels inside event_id={event_id}: {previous} vs {label}")
+        event_label[event_id] = label
+        by_event.setdefault(event_id, []).append(int(index))
+    background = np.array(
+        sorted(event_id for event_id, label in event_label.items() if label == 0),
+        dtype=np.int64)
+    signal = np.array(
+        sorted(event_id for event_id, label in event_label.items() if label == 1),
+        dtype=np.int64)
+    return event_label, by_event, background, signal
 
 
 def _jets_in(all_idx, event_ids, events) -> np.ndarray:
-    return np.array([i for i, e in zip(all_idx, event_ids) if int(e) in events],
-                    dtype=np.int64)
+    return np.asarray(all_idx, dtype=np.int64)[np.isin(event_ids, list(events))]
 
 
 def _jets_by_events(by_event, events) -> np.ndarray:
-    return np.array([j for e in sorted(events) for j in by_event[e]],
+    return np.array([index for event_id in sorted(events) for index in by_event[event_id]],
                     dtype=np.int64)
 
 
 def _roles_manifest(path, event_label, log):
-    s = _read_manifest(path, event_label)
-    tb, ts = s["train_bkg_events"], s["train_sig_events"]
-    vb, ms = s["val_bkg_events"], s["monitor_sig_events"]
-    xb, xs = s["test_bkg_events"], s["test_sig_events"]
+    roles = _read_manifest(path, event_label)
+    train_background, train_signal = roles["train_bkg_events"], roles["train_sig_events"]
+    validation, monitor_signal = roles["val_bkg_events"], roles["monitor_sig_events"]
+    test_background, test_signal = roles["test_bkg_events"], roles["test_sig_events"]
     log.info(f"Split mode : manifest  {path}")
-    log.info(f"  train_bkg={len(tb):,} train_sig={len(ts):,} "
-             f"val_bkg={len(vb):,} monitor_sig={len(ms):,} "
-             f"test_bkg={len(xb):,} test_sig={len(xs):,} "
-             f"ratio={len(xb) / max(len(xs), 1):.1f}:1")
-    if ts:
+    log.info(f"  train_bkg={len(train_background):,} train_sig={len(train_signal):,} "
+             f"val_bkg={len(validation):,} monitor_sig={len(monitor_signal):,} "
+             f"test_bkg={len(test_background):,} test_sig={len(test_signal):,} "
+             f"ratio={len(test_background) / max(len(test_signal), 1):.1f}:1")
+    if train_signal:
         log.info(f"  train contamination S/B="
-                 f"{len(ts) / max(len(tb), 1):.4f} (labels hidden from AE loss)")
+                 f"{len(train_signal) / max(len(train_background), 1):.4f} "
+                 "(labels hidden from AE loss)")
     log.info("  epoch AUC/SIC "
-             + ("uses disjoint monitor_sig" if ms else "disabled (no monitor_sig)"))
-    return tb | ts, vb, ms, xb | xs
+             + ("uses disjoint monitor_sig" if monitor_signal else "disabled (no monitor_sig)"))
+    return train_background | train_signal, validation, monitor_signal, test_background | test_signal
 
 
 def _roles_ks_fixed(args, bg, sig, rng, log):

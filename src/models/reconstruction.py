@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 
 import torch
 import torch.nn as nn
-from torch_geometric.utils import scatter
+from torch_geometric.utils import scatter, to_dense_batch
 
 Scalar = TypeVar("Scalar")
 
@@ -69,10 +69,17 @@ def reconstruction_scores(
     *,
     edge_target: torch.Tensor | None = None,
     edge_weight: float = 1.0,
+    node_reduction: str = "mse",
 ) -> LossTerms[torch.Tensor]:
-    """Return per-graph total/node/edge reconstruction errors."""
-    node = mse_per_graph(
-        output.node, node_target, batch.batch, n_graphs=batch.num_graphs)
+    """Per-graph errors; official_l2 uses node-axis L2 then feature mean."""
+    if node_reduction == "official_l2":
+        residual, _ = to_dense_batch(output.node - node_target, batch.batch)
+        node = torch.linalg.vector_norm(residual, dim=1).mean(dim=-1)
+    elif node_reduction == "mse":
+        node = mse_per_graph(
+            output.node, node_target, batch.batch, n_graphs=batch.num_graphs)
+    else:
+        raise ValueError(f"Unknown node reduction: {node_reduction}")
     if output.edge is None:
         if edge_target is not None:
             raise ValueError("edge target provided for a node-only reconstruction")

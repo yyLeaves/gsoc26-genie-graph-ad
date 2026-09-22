@@ -8,6 +8,7 @@ from .factory import (EDGE_FEATURE_MODEL_TYPES, MODEL_TYPES,
                       PT_NODE_MODEL_TYPES, ModelSpec, create_model, load_model,
                       load_model_and_spec)
 from .node_graph_ae import NodeGraphAE
+from .reference_backbone_edge_graph_ae import ReferenceBackboneEdgeGraphAE
 from .reconstruction import LossTerms, Reconstruction
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "ensure_dataset_matches",
     "NodeGraphAE",
     "EdgeGraphAE",
+    "ReferenceBackboneEdgeGraphAE",
     "DynamicGraphAE",
     "DynamicEdgeGraphAE",
     "EdgeFeatureNodeGraphAE",

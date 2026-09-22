@@ -37,21 +37,14 @@ class GraphConfig:
     radius: float | None = None
 
     def __post_init__(self) -> None:
-        if self.strategy not in GRAPH_STRATEGIES:
-            raise ValueError(
-                f"strategy must be one of {list(GRAPH_STRATEGIES)}, "
-                f"got {self.strategy!r}"
-            )
-        if self.edge_features not in EDGE_FEATURE_MODES:
-            raise ValueError(
-                f"edge_features must be one of {list(EDGE_FEATURE_MODES)}, "
-                f"got {self.edge_features!r}"
-            )
-        if self.edge_pt_scale not in EDGE_PT_SCALES:
-            raise ValueError(
-                f"edge_pt_scale must be one of {list(EDGE_PT_SCALES)}, "
-                f"got {self.edge_pt_scale!r}"
-            )
+        for name, choices in (
+            ("strategy", GRAPH_STRATEGIES),
+            ("edge_features", EDGE_FEATURE_MODES),
+            ("edge_pt_scale", EDGE_PT_SCALES),
+        ):
+            value = getattr(self, name)
+            if value not in choices:
+                raise ValueError(f"{name} must be one of {list(choices)}, got {value!r}")
 
         needs_k = self.strategy in STRATEGIES_WITH_K
         if needs_k and (self.k is None or self.k < 1):
@@ -75,10 +68,6 @@ class GraphConfig:
                 f"got radius={self.radius}"
             )
 
-    @property
-    def normalize_edge_pt(self) -> bool:
-        return self.edge_pt_scale == "normalized"
-
 
 def _build_output_metadata(
     input_meta: dict,
@@ -97,13 +86,11 @@ def _build_output_metadata(
     if config.radius is not None:
         edge_metadata["radius"] = float(config.radius)
 
-    output_meta = {
-        **{key: value for key, value in input_meta.items()
-           if key != "n_edges"},
+    return {
+        **input_meta,
         **shard_stats,
         "edges": edge_metadata,
     }
-    return output_meta
 
 
 def _print_summary(
@@ -134,45 +121,28 @@ def _print_summary(
     print(f"  Saved to   : {output_dir}/")
 
 
-def _pt_of(g: Data) -> np.ndarray:
-    """Raw pT from the `pt` attribute stored by preprocess."""
-    if getattr(g, "pt", None) is None:
-        raise ValueError(
-            "point-cloud Data has no `pt` attribute — regenerate the shards "
-            "with the current preprocess.py (edge features need raw pT).")
-    return g.pt.numpy()
-
-
-def with_edges(g: Data, config: GraphConfig) -> Data:
-    """Shallow copy of g with edge_index from `strategy`, optionally an
-    edge_attr of (θ, k_T, z) features.
-
-    strategy:   "knn" | "sym_knn" | "radius" | "radius_knn" | "mst"
-                | "delaunay" | "laman" | "unique" | "fully_connected"
-                ("unique" = Araz unique-k; k=2 ≡ laman).
-    Edge topology and features are fully specified by ``config``.
-    """
-    g2 = copy.copy(g)
-    pos = getattr(g, "pos", None)
-    if not isinstance(pos, torch.Tensor):
-        raise ValueError(
-            "point-cloud Data has no `pos` attribute — regenerate the shards "
-            "with the current preprocess.py."
-        )
-    pos_np = pos.numpy()
-    g2.edge_index = build_edges(
-        pos_np,
+def with_edges(source: Data, config: GraphConfig) -> Data:
+    """Replace edges on a shallow copy; leave nodes and event fields unchanged."""
+    if not isinstance(source.pos, torch.Tensor):
+        raise ValueError("graph requires a pos tensor to build edges")
+    positions = source.pos.numpy()
+    graph = copy.copy(source)
+    graph.edge_index = build_edges(
+        positions,
         config.strategy,
         config.k if config.k is not None else 0,
         radius=config.radius if config.radius is not None else 0.0,
     )
+    graph.edge_attr = None
     if config.edge_features != "none":
-        g2.edge_attr = edge_features(pos_np, _pt_of(g), g2.edge_index,
-                                     log=(config.edge_features == "log"),
-                                     normalize_pt=config.normalize_edge_pt)
-    else:
-        g2.edge_attr = None
-    return g2
+        if getattr(source, "pt", None) is None:
+            raise ValueError("graph requires raw pt to compute edge features")
+        graph.edge_attr = edge_features(
+            positions, source.pt.numpy(), graph.edge_index,
+            log=config.edge_features == "log",
+            normalize_pt=config.edge_pt_scale == "normalized",
+        )
+    return graph
 
 
 def build_graph_shards(
@@ -183,7 +153,6 @@ def build_graph_shards(
 ) -> None:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     meta = shards.load_metadata(input_dir)
     n_shards = meta["n_shards"]
@@ -204,12 +173,9 @@ def build_graph_shards(
     t0 = time.time()
 
     for si in range(n_shards):
-        graphs = [
-            with_edges(graph, config)
-            for graph in shards.load_shard(input_dir, si)
-        ]
-        writer.extend(graphs)
-        for graph in graphs:
+        for source in shards.load_shard(input_dir, si):
+            graph = with_edges(source, config)
+            writer.add(graph)
             if graph.edge_index.shape[1]:
                 graph_max = int(torch.bincount(graph.edge_index[1]).max())
                 max_in_degree = max(max_in_degree, graph_max)
@@ -220,11 +186,7 @@ def build_graph_shards(
               f"  {elapsed:.0f}s  eta={eta_min:.1f}min", flush=True)
 
     shard_stats = writer.finish()
-    output_meta = _build_output_metadata(
-        meta,
-        shard_stats,
-        config,
-    )
+    output_meta = _build_output_metadata(meta, shard_stats, config)
     shards.save_metadata(output_meta, output_dir)
     _print_summary(output_meta, time.time() - t0, output_dir,
                    max_in_degree)

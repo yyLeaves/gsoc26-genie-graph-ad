@@ -115,26 +115,22 @@ class EdgeFeatureNodeGraphAE(ReconstructionMixin, nn.Module):
         self.use_bn = use_bn
         self.feature_cols = normalize_feature_cols(feature_cols, in_dim)
         self.input_bn = nn.BatchNorm1d(in_dim) if use_bn else nn.Identity()
-        self.encoder = nn.ModuleList([
-            EdgeFeatureConvBlock(backbone, in_dim, hidden_dim, edge_dim,
-                                 use_bn=use_bn),
-            EdgeFeatureConvBlock(backbone, hidden_dim, hidden_dim, edge_dim,
-                                 use_bn=use_bn),
-            EdgeFeatureConvBlock(backbone, hidden_dim, hidden_dim, edge_dim,
-                                 use_bn=use_bn),
-        ])
+        self.encoder = nn.ModuleList(
+            EdgeFeatureConvBlock(backbone, input_dim, hidden_dim, edge_dim,
+                                 use_bn=use_bn)
+            for input_dim in (in_dim, hidden_dim, hidden_dim))
         self.to_latent = nn.Linear(hidden_dim, latent_dim)
         self.decoder = EdgeFeatureConvBlock(
             backbone, latent_dim, hidden_dim, edge_dim, use_bn=use_bn)
         self.head = nn.Linear(hidden_dim, in_dim)
 
     def forward(self, x, edge_index, edge_attr):
-        h = self.input_bn(x)
+        hidden = self.input_bn(x)
         for block in self.encoder:
-            h = block(h, edge_index, edge_attr)
-        z = self.to_latent(h)
-        recon = self.head(self.decoder(z, edge_index, edge_attr))
-        return Reconstruction(node=recon, latent=z)
+            hidden = block(hidden, edge_index, edge_attr)
+        latent = self.to_latent(hidden)
+        recon = self.head(self.decoder(latent, edge_index, edge_attr))
+        return Reconstruction(node=recon, latent=latent)
 
     def _reconstruct(self, batch):
         target = select_node_features(batch, self.in_dim, self.feature_cols)

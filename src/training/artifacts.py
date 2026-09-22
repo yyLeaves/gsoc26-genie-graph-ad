@@ -8,6 +8,7 @@ import torch
 
 from src.checkpoint import require_training_state, save_checkpoint
 from src.data.shards import dataset_spec
+from src.data.grouping import group_events
 from src.models import ModelSpec
 from src.training.splits import Splits
 
@@ -26,19 +27,9 @@ def _split_summary(ds, indices) -> dict:
     indices = np.asarray(indices, dtype=np.int64)
     labels = np.asarray(ds.labels, dtype=np.int64)[indices]
     event_ids = np.asarray(ds.event_ids, dtype=np.int64)[indices]
-    if indices.size == 0:
-        event_labels = np.array([], dtype=np.int64)
-    else:
-        order = np.argsort(event_ids, kind="stable")
-        sorted_ids, sorted_labels = event_ids[order], labels[order]
-        starts = np.r_[0, np.flatnonzero(np.diff(sorted_ids)) + 1]
-        lo = np.minimum.reduceat(sorted_labels, starts)
-        hi = np.maximum.reduceat(sorted_labels, starts)
-        if np.any(lo != hi):
-            bad = sorted_ids[starts[lo != hi]][:5].tolist()
-            raise ValueError(
-                f"split contains inconsistent labels inside events {bad}")
-        event_labels = lo
+    event_labels = group_events(
+        event_ids, labels,
+        label_error="split contains inconsistent labels inside events").labels
     return {
         "n_jets": int(indices.size),
         "n_background_jets": int(np.sum(labels == 0)),
@@ -61,16 +52,31 @@ def split_fingerprint(splits: Splits) -> str:
     return digest.hexdigest()
 
 
-def _backfill_topo_defaults(sig: dict) -> dict:
-    """Add topo_reg fields with defaults to a pre-topo resume_signature."""
-    sig = {**sig}
-    if "training" in sig:
-        t = {**sig["training"]}
-        t.setdefault("topo_reg", "none")
-        t.setdefault("lambda_topo", 0.0)
-        t.setdefault("unique_k", 6)
-        sig["training"] = t
-    return sig
+def _lambda_topo_signature(value):
+    """Canonical JSON-safe topology weights, compatible with old scalars."""
+    if isinstance(value, str) and "," in value:
+        return [float(part.strip()) for part in value.split(",")]
+    return float(value or 0.0)
+
+
+def _training_settings(args) -> dict:
+    """Shared serialized settings for run logs and exact resume checks."""
+    settings = {
+        name: getattr(args, name) for name in (
+            "epochs", "batch_size", "lr", "weight_decay", "patience", "eval_interval",
+            "save_monitor_best", "topo_reg", "topo_norm", "unique_k",
+            "cycle_weight", "cycle_component", "cycle_global_mode",
+            "contrast_weight", "perturb_scale", "contrast_temperature",
+            "contrast_source", "contrast_center", "relation_objective", "relation_weight",
+            "relation_node_mask", "relation_edge_mask", "relation_temperature",
+            "relation_moment_weight", "anomaly_score",
+        )
+    }
+    settings["event_score_aggregation"] = args.event_score_agg
+    settings["lambda_topo"] = _lambda_topo_signature(args.lambda_topo)
+    if getattr(args, "node_reconstruction", "mse") != "mse":
+        settings["node_reconstruction"] = args.node_reconstruction
+    return settings
 
 
 def resume_signature(args, model_spec: ModelSpec, ds, splits: Splits) -> dict:
@@ -80,21 +86,11 @@ def resume_signature(args, model_spec: ModelSpec, ds, splits: Splits) -> dict:
         "dataset_fingerprint_sha256": dataset_spec(ds.meta)["fingerprint_sha256"],
         "split_fingerprint_sha256": split_fingerprint(splits),
         "training": {
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
+            **_training_settings(args),
             "optimizer": "AdamW",
-            "lr": args.lr,
-            "weight_decay": args.weight_decay,
             "scheduler": args.scheduler,
             "lr_end": args.lr_end,
             "no_early_stop": args.no_early_stop,
-            "patience": args.patience,
-            "eval_interval": args.eval_interval,
-            "event_score_aggregation": args.event_score_agg,
-            "save_monitor_best": getattr(args, "save_monitor_best", False),
-            "topo_reg": getattr(args, "topo_reg", "none") or "none",
-            "lambda_topo": float(getattr(args, "lambda_topo", 0.0) or 0.0),
-            "unique_k": int(getattr(args, "unique_k", 6)),
         },
     }
 
@@ -134,17 +130,17 @@ def _split_config(ds, args, splits: Splits) -> dict:
     return {
         "fraction": args.fraction,
         "seed": args.seed,
-        "protocol": getattr(args, "split_protocol", "manifest"),
-        "manifest": getattr(args, "split_manifest", None),
+        "protocol": args.split_protocol,
+        "manifest": args.split_manifest,
         "sets": {
             name: _split_summary(ds, getattr(splits, attr))
             for name, attr in _SPLIT_SET_NAMES
         },
         "requested_event_counts": {
-            "train_background": getattr(args, "train_bkg_events", None),
-            "validation_background": getattr(args, "val_bkg_events", None),
-            "test_background": getattr(args, "test_bkg_events", None),
-            "test_signal": getattr(args, "test_sig_events", None),
+            "train_background": args.train_bkg_events,
+            "validation_background": args.val_bkg_events,
+            "test_background": args.test_bkg_events,
+            "test_signal": args.test_sig_events,
         },
         "fingerprint_sha256": split_fingerprint(splits),
     }
@@ -181,18 +177,8 @@ def write_run_config(output_dir, run_name, ts, args, model, model_spec, ds,
         },
         "split": _split_config(ds, args, splits),
         "training": {
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
-            "lr": args.lr,
-            "weight_decay": args.weight_decay,
-            "patience": args.patience,
-            "eval_interval": args.eval_interval,
+            **_training_settings(args),
             "cache_shards": args.cache_shards,
-            "event_score_aggregation": args.event_score_agg,
-            "save_monitor_best": getattr(args, "save_monitor_best", False),
-            "topo_reg": getattr(args, "topo_reg", "none") or "none",
-            "lambda_topo": float(getattr(args, "lambda_topo", 0.0) or 0.0),
-            "unique_k": int(getattr(args, "unique_k", 6)),
         },
         "optimizer": {
             "type": "AdamW", "lr": args.lr, "weight_decay": args.weight_decay,
@@ -280,15 +266,9 @@ def restore_training_checkpoint(
         raise ValueError("resume checkpoint does not contain run_config")
     saved_sig = run_config.get("resume_signature")
     if saved_sig != expected_signature:
-        # Allow resuming pre-topo checkpoints when topo_reg is "none"
-        if saved_sig is not None:
-            patched = _backfill_topo_defaults(saved_sig)
-            if patched == expected_signature:
-                saved_sig = patched
-        if saved_sig != expected_signature:
-            raise ValueError(
-                "resume checkpoint does not match the requested model, "
-                "dataset, split, or training schedule")
+        raise ValueError(
+            "resume checkpoint does not match the requested model, "
+            "dataset, split, or training schedule")
 
     state = require_training_state(payload)
     model.load_state_dict(payload["model"]["state"])

@@ -87,24 +87,12 @@ def ensure_dataset_matches(
     if not spec.requires_edge_features:
         return
 
-    edge_features = edge_metadata.get("features")
-    if edge_features not in {"linear", "log"}:
-        raise ValueError(
-            f"model type {spec.type!r} requires edges.features in "
-            f"('linear', 'log'), got {edge_features!r}"
-        )
-    if spec.reconstructs_edges:
-        if edge_features != "log":
+    for name, expected in (("features", spec.edge_features),
+                           ("pt_scale", spec.edge_pt_scale)):
+        if edge_metadata[name] != expected:
             raise ValueError(
-                f"model type {spec.type!r} reconstructs log edge features "
-                f"(ln ΔR, ln k_T, ln z), but dataset metadata declares "
-                f"edges.features={edge_features!r}"
-            )
-        pt_scale = edge_metadata.get("pt_scale")
-        if pt_scale != "normalized":
-            raise ValueError(
-                f"model type {spec.type!r} expects edges.pt_scale="
-                f"'normalized', but dataset metadata declares {pt_scale!r}"
+                f"model expects edges.{name}={expected!r}, "
+                f"but dataset declares {edge_metadata[name]!r}"
             )
 
     stored_edge_dim = int(edge_metadata["feature_dim"])

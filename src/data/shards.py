@@ -16,6 +16,7 @@ from .graph import (
     STRATEGIES_WITH_RADIUS,
 )
 from .features import FEATURE_DIM
+from .grouping import group_events
 
 # Keep in sync with extractor.JET_SELECTIONS (avoid importing fastjet here).
 _JET_SELECTIONS = ("leading_pt", "min_pt_all")
@@ -80,18 +81,6 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
     """Validate the common shard metadata contract and on-disk shard set."""
     if not isinstance(meta, dict):
         raise ValueError(f"metadata must be a dict, got {type(meta).__name__}")
-    selection = meta.get("selection")
-    if isinstance(selection, dict):
-        # Legacy alias from older preprocess metadata.
-        if "jet_selection" not in selection and "pt_cut_scope" in selection:
-            selection["jet_selection"] = selection.pop("pt_cut_scope")
-        elif "pt_cut_scope" in selection:
-            if selection["pt_cut_scope"] != selection.get("jet_selection"):
-                raise ValueError(
-                    "metadata selection has conflicting jet_selection and "
-                    "pt_cut_scope values"
-                )
-            selection.pop("pt_cut_scope")
     required = (
         "schema_version",
         "n_jets",
@@ -131,8 +120,7 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
             f"and shard_size={shard_size}; expected {expected_n_shards}"
         )
 
-    per_jet_fields = ("labels", "n_nodes", "n_edges", "event_ids", "jet_idx")
-    for name in per_jet_fields:
+    for name in _PER_JET_FIELDS:
         if name in meta and len(meta[name]) != n_jets:
             raise ValueError(
                 f"metadata {name} has length {len(meta[name])}, "
@@ -161,6 +149,15 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
             f"selected n_events={n_events}"
         )
     selection = meta["selection"]
+    _validate_selection(selection)
+    _validate_nodes(meta["nodes"])
+    _validate_edges(meta)
+    _validate_events(meta, labels, n_events, selection["require_two_jets"])
+    if directory is not None:
+        _validate_shard_files(directory, n_shards)
+
+
+def _validate_selection(selection: dict) -> None:
     required_selection = {
         "algorithm",
         "radius",
@@ -190,7 +187,8 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
             f"{list(_JET_SELECTIONS)}, got {selection['jet_selection']!r}"
         )
 
-    nodes = meta["nodes"]
+
+def _validate_nodes(nodes: dict) -> None:
     required_nodes = {"representation", "features", "feature_dim"}
     if not isinstance(nodes, dict):
         raise ValueError("metadata nodes must be a dict")
@@ -209,71 +207,70 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
             f"match features={nodes['features']!r} (expected {expected_dim})"
         )
 
+
+def _validate_edges(meta: dict) -> None:
     edges = meta["edges"]
     if edges is None:
         if "n_edges" in meta:
             raise ValueError(
                 "metadata with edges=None must not contain n_edges"
             )
-    else:
-        required_edges = {"strategy", "features", "pt_scale", "feature_dim"}
-        if not isinstance(edges, dict):
-            raise ValueError("metadata edges must be a dict or None")
-        missing_edges = sorted(required_edges - set(edges))
-        if missing_edges:
+        return
+    required_edges = {"strategy", "features", "pt_scale", "feature_dim"}
+    if not isinstance(edges, dict):
+        raise ValueError("metadata edges must be a dict or None")
+    missing_edges = sorted(required_edges - set(edges))
+    if missing_edges:
+        raise ValueError(
+            f"metadata edges is missing fields {missing_edges}"
+        )
+    for name, choices in (
+        ("strategy", GRAPH_STRATEGIES),
+        ("features", EDGE_FEATURE_MODES),
+        ("pt_scale", EDGE_PT_SCALES),
+    ):
+        if edges[name] not in choices:
             raise ValueError(
-                f"metadata edges is missing fields {missing_edges}"
-            )
-        strategy = edges["strategy"]
-        if strategy not in GRAPH_STRATEGIES:
+                f"metadata edges.{name} must be one of "
+                f"{list(choices)}, got {edges[name]!r}")
+    strategy = edges["strategy"]
+    needs_k = strategy in STRATEGIES_WITH_K
+    if needs_k:
+        if "k" not in edges or int(edges["k"]) < 1:
             raise ValueError(
-                f"metadata edges.strategy must be one of "
-                f"{list(GRAPH_STRATEGIES)}, got {strategy!r}"
+                f"metadata edges.strategy={strategy!r} requires k >= 1"
             )
-        if edges["features"] not in EDGE_FEATURE_MODES:
+    elif "k" in edges:
+        raise ValueError(
+            f"metadata edges.strategy={strategy!r} must not set k"
+        )
+    needs_radius = strategy in STRATEGIES_WITH_RADIUS
+    if needs_radius:
+        if "radius" not in edges or float(edges["radius"]) <= 0:
             raise ValueError(
-                f"metadata edges.features must be one of "
-                f"{list(EDGE_FEATURE_MODES)}, got {edges['features']!r}"
+                f"metadata edges.strategy={strategy!r} requires "
+                "radius > 0"
             )
-        if edges["pt_scale"] not in EDGE_PT_SCALES:
-            raise ValueError(
-                f"metadata edges.pt_scale must be one of "
-                f"{list(EDGE_PT_SCALES)}, got {edges['pt_scale']!r}"
-            )
-        needs_k = strategy in STRATEGIES_WITH_K
-        if needs_k:
-            if "k" not in edges or int(edges["k"]) < 1:
-                raise ValueError(
-                    f"metadata edges.strategy={strategy!r} requires k >= 1"
-                )
-        elif "k" in edges:
-            raise ValueError(
-                f"metadata edges.strategy={strategy!r} must not set k"
-            )
-        needs_radius = strategy in STRATEGIES_WITH_RADIUS
-        if needs_radius:
-            if "radius" not in edges or float(edges["radius"]) <= 0:
-                raise ValueError(
-                    f"metadata edges.strategy={strategy!r} requires "
-                    "radius > 0"
-                )
-        elif "radius" in edges:
-            raise ValueError(
-                f"metadata edges.strategy={strategy!r} must not set radius"
-            )
-        if "n_edges" not in meta:
-            raise ValueError("graph metadata must contain n_edges")
-        edge_counts = np.asarray(meta["n_edges"], dtype=np.int64)
-        if np.any(edge_counts < 0):
-            raise ValueError("metadata n_edges must be non-negative")
-        feature_dim = int(edges["feature_dim"])
-        if feature_dim < 0:
-            raise ValueError("metadata edges.feature_dim must be non-negative")
-        if (edges["features"] == "none") != (feature_dim == 0):
-            raise ValueError(
-                "metadata edges.features='none' iff edge feature_dim is zero"
-            )
+    elif "radius" in edges:
+        raise ValueError(
+            f"metadata edges.strategy={strategy!r} must not set radius"
+        )
+    if "n_edges" not in meta:
+        raise ValueError("graph metadata must contain n_edges")
+    edge_counts = np.asarray(meta["n_edges"], dtype=np.int64)
+    if np.any(edge_counts < 0):
+        raise ValueError("metadata n_edges must be non-negative")
+    feature_dim = int(edges["feature_dim"])
+    if feature_dim < 0:
+        raise ValueError("metadata edges.feature_dim must be non-negative")
+    if (edges["features"] == "none") != (feature_dim == 0):
+        raise ValueError(
+            "metadata edges.features='none' iff edge feature_dim is zero"
+        )
 
+
+def _validate_events(meta: dict, labels: np.ndarray, n_events: int,
+                     require_two_jets: bool) -> None:
     event_ids = np.asarray(meta["event_ids"], dtype=np.int64)
     jet_indices = np.asarray(meta["jet_idx"], dtype=np.int64)
     if np.any(event_ids < 0) or np.any(jet_indices < 0):
@@ -286,52 +283,45 @@ def validate_metadata(meta: dict, directory: Path | None = None) -> None:
         )
 
     order = np.lexsort((jet_indices, event_ids))
+    groups = group_events(
+        event_ids, labels, order=order,
+        label_error="metadata has inconsistent labels inside events")
     sorted_events = event_ids[order]
     sorted_jets = jet_indices[order]
-    sorted_labels = labels[order]
-    starts = np.r_[0, np.flatnonzero(np.diff(sorted_events)) + 1]
-    counts = np.diff(np.r_[starts, len(sorted_events)])
-    label_min = np.minimum.reduceat(sorted_labels, starts)
-    label_max = np.maximum.reduceat(sorted_labels, starts)
-    if np.any(label_min != label_max):
-        bad = sorted_events[starts[label_min != label_max]][:5].tolist()
-        raise ValueError(
-            f"metadata has inconsistent labels inside events {bad}"
-        )
 
-    bad_two_jet_events = []
-    for start, count in zip(starts, counts, strict=True):
-        event_jets = sorted_jets[start:start + count]
-        event_id = int(sorted_events[start])
-        if len(np.unique(event_jets)) != count:
-            raise ValueError(
-                f"metadata event_id={event_id} has duplicate jet_idx values"
-            )
-        if np.any(event_jets > 1):
-            raise ValueError(
-                f"metadata event_id={event_id} has jet_idx outside {{0, 1}}"
-            )
-        if selection["require_two_jets"] and not np.array_equal(
-            event_jets, np.array([0, 1])
-        ):
-            bad_two_jet_events.append(event_id)
-    if bad_two_jet_events:
+    duplicate = ((sorted_events[1:] == sorted_events[:-1])
+                 & (sorted_jets[1:] == sorted_jets[:-1]))
+    if np.any(duplicate):
+        event_id = int(sorted_events[1:][duplicate][0])
+        raise ValueError(
+            f"metadata event_id={event_id} has duplicate jet_idx values"
+        )
+    outside = sorted_jets > 1
+    if np.any(outside):
+        event_id = int(sorted_events[outside][0])
+        raise ValueError(
+            f"metadata event_id={event_id} has jet_idx outside {{0, 1}}"
+        )
+    # Distinct indices in {0, 1} form a complete pair iff the count is two.
+    if require_two_jets and np.any(groups.counts != 2):
+        bad_two_jet_events = groups.event_ids[groups.counts != 2][:5].tolist()
         raise ValueError(
             "metadata require_two_jets=True requires jet_idx={0,1} "
-            f"for every event; bad events={bad_two_jet_events[:5]}"
+            f"for every event; bad events={bad_two_jet_events}"
         )
 
-    if directory is not None:
-        directory = Path(directory)
-        expected = {shard_file(directory, index) for index in range(n_shards)}
-        actual = set(directory.glob("shard_*.pt"))
-        if actual != expected:
-            missing_files = sorted(path.name for path in expected - actual)
-            extra_files = sorted(path.name for path in actual - expected)
-            raise ValueError(
-                "metadata shard set does not match disk; "
-                f"missing={missing_files[:5]}, extra={extra_files[:5]}"
-            )
+
+def _validate_shard_files(directory: Path, n_shards: int) -> None:
+    directory = Path(directory)
+    expected = {shard_file(directory, index) for index in range(n_shards)}
+    actual = set(directory.glob("shard_*.pt"))
+    if actual != expected:
+        missing_files = sorted(path.name for path in expected - actual)
+        extra_files = sorted(path.name for path in actual - expected)
+        raise ValueError(
+            "metadata shard set does not match disk; "
+            f"missing={missing_files[:5]}, extra={extra_files[:5]}"
+        )
 
 
 def dataset_spec(meta: dict) -> dict:

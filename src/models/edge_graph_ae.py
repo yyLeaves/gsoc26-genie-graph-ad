@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing
@@ -76,6 +78,8 @@ class EdgeGraphAE(ReconstructionMixin, nn.Module):
 
     def __init__(self, in_dim, edge_dim=3, hidden_dim=64, latent_dim=2,
                  edge_weight=1.0, aggr="mean", dropout=0.0,
+                 contrastive_projection_dim=0,
+                 contrastive_source="latent",
                  feature_cols: tuple[int, ...] | None = None):
         super().__init__()
         self.in_dim = in_dim
@@ -85,40 +89,49 @@ class EdgeGraphAE(ReconstructionMixin, nn.Module):
         self.edge_weight = edge_weight
         self.aggr = aggr
         self.dropout = dropout
+        self.contrastive_projection_dim = contrastive_projection_dim
+        self.contrastive_source = contrastive_source
         self.feature_cols = normalize_feature_cols(feature_cols, in_dim)
 
-        enc_dims = [hidden_dim, hidden_dim, latent_dim]
-        self.encoder_blocks = nn.ModuleList()
-        cur = in_dim
-        for out in enc_dims:
-            self.encoder_blocks.append(
-                EdgeBlock(cur, out, edge_dim, hidden=hidden_dim, aggr=aggr,
-                         dropout=dropout))
-            cur = out
+        encoder_dims = (in_dim, hidden_dim, hidden_dim, latent_dim)
+        self.encoder_blocks = nn.ModuleList(
+            EdgeBlock(input_dim, output_dim, edge_dim, hidden=hidden_dim,
+                      aggr=aggr, dropout=dropout)
+            for input_dim, output_dim in pairwise(encoder_dims))
 
-        dec_dims = [hidden_dim // 2, in_dim]
-        self.decoder_blocks = nn.ModuleList()
-        cur = latent_dim
-        for i, out in enumerate(dec_dims):
-            self.decoder_blocks.append(
-                EdgeBlock(cur, out, edge_dim=0, hidden=hidden_dim, aggr=aggr,
-                         dropout=dropout, dec=True, final=(i == len(dec_dims) - 1)))
-            cur = out
+        decoder_dims = (latent_dim, hidden_dim // 2, in_dim)
+        self.decoder_blocks = nn.ModuleList(
+            EdgeBlock(input_dim, output_dim, edge_dim=0, hidden=hidden_dim,
+                      aggr=aggr, dropout=dropout, dec=True,
+                      final=(index == len(decoder_dims) - 2))
+            for index, (input_dim, output_dim) in enumerate(pairwise(decoder_dims)))
 
         self.edge_predictor = EdgeAttrPredictor(latent_dim, edge_dim,
                                                  hidden=hidden_dim,
                                                  dropout=dropout)
+        self.contrastive_projection = (
+            nn.Sequential(
+                nn.Linear(latent_dim, contrastive_projection_dim),
+                nn.ReLU(),
+                nn.Linear(contrastive_projection_dim,
+                          contrastive_projection_dim),
+            )
+            if contrastive_projection_dim > 0 else None
+        )
+        if contrastive_source == "eb2" and contrastive_projection_dim > 0:
+            self.contrastive_eb2_projection = nn.Sequential(
+                nn.Linear(hidden_dim, contrastive_projection_dim), nn.ReLU(),
+                nn.Linear(contrastive_projection_dim, contrastive_projection_dim))
 
     def forward(self, x, edge_index, edge_attr):
-        h = x
+        latent = x
         for block in self.encoder_blocks:
-            h = block(h, edge_index, edge_attr)
-        z = h
-        r = z
+            latent = block(latent, edge_index, edge_attr)
+        nodes = latent
         for block in self.decoder_blocks:
-            r = block(r, edge_index)
-        e_pred = self.edge_predictor(z, edge_index)
-        return Reconstruction(node=r, latent=z, edge=e_pred)
+            nodes = block(nodes, edge_index)
+        edges = self.edge_predictor(latent, edge_index)
+        return Reconstruction(node=nodes, latent=latent, edge=edges)
 
     def _reconstruct(self, batch):
         target = select_node_features(batch, self.in_dim, self.feature_cols)
@@ -130,4 +143,7 @@ class EdgeGraphAE(ReconstructionMixin, nn.Module):
         return (f"in_dim={self.in_dim}, edge_dim={self.edge_dim}, "
                 f"hidden_dim={self.hidden_dim}, latent_dim={self.latent_dim}, "
                 f"edge_weight={self.edge_weight}, aggr={self.aggr!r}, "
-                f"dropout={self.dropout}, feature_cols={self.feature_cols}")
+                f"dropout={self.dropout}, "
+                f"contrastive_projection_dim={self.contrastive_projection_dim}, "
+                f"contrastive_source={self.contrastive_source!r}, "
+                f"feature_cols={self.feature_cols}")

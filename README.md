@@ -7,11 +7,13 @@ The code converts collider events into subjet graphs, trains a graph autoencoder
 ## Repository layout
 
 ```text
-src/       data processing, models, training, evaluation
+src/       data processing, models, objectives, training, evaluation
 scripts/   runnable pipeline / training / inference entrypoints
 dataset/   local data placeholder; data are not tracked
 runs/      local output placeholder; checkpoints are not tracked
 ```
+
+See [Module overview](src/README.md) for package responsibilities.
 
 ## Setup
 
@@ -56,7 +58,7 @@ raw H5
   → 1. preprocess   scripts/preprocess.sh
   → 2. build graph  scripts/build_graph.sh
   → 3. event split  scripts/make_event_split.py
-  → 4. train        python -m scripts.train_graph_ae
+  → 4. train        python -m src.training
   → 5. eval         python -m scripts.eval_test_idx
                     (or scripts.eval_labeled_dataset for BB1 / labeled sets)
 ```
@@ -189,7 +191,7 @@ CLI defaults match the main recipe (`--model edge_graph`, `--epochs 50`,
 OneCycle, `pt` nodes). Pass `--no_early_stop` so the primary result is
 `last.pt` after a full schedule.
 
-Important flags (`python -m scripts.train_graph_ae`):
+Important flags (`python -m src.training`):
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -209,6 +211,8 @@ Important flags (`python -m scripts.train_graph_ae`):
 | `--event_score_agg` | `sum` | Event-level score |
 | `--no_early_stop` | off | Train full epochs; primary = `last.pt` |
 | `--seed` | `42` | Init + shuffle |
+| `--contrast_weight` | `0.0` | GLADC graph-contrast loss weight |
+| `--cycle_weight` | `0.0` | Latent cycle-consistency loss weight |
 | `--topo_reg` / `--lambda_topo` | `none` / `1.0` | Optional train-time topology reg |
 
 Supported `--model` values:
@@ -226,8 +230,10 @@ Supported `--backbone` values (used by the GNN-style models above; ignored by
 fixed `edge_graph` blocks): `edgeconv`, `gcn`, `sage`, `gatv2`, `gin`,
 `transformer`.
 
+#### Baseline training (reconstruction only)
+
 ```bash
-PYTHONPATH=. $CONDA_PREFIX/bin/python -m scripts.train_graph_ae \
+PYTHONPATH=. $CONDA_PREFIX/bin/python -m src.training \
   --data_dir dataset/processed/lhco_canonical_leadingpt_sj30_unique6_logef \
   --split_manifest dataset/processed/splits/lhco_canonical_leadingpt_sj30_train80000b_val20000b_test340000b_20000s_monsig20000_seed42.npz \
   --output runs/leadingpt_ksfixed \
@@ -241,6 +247,63 @@ outside a dijet-mass window). Helper script:
 bash scripts/run_mjj_window_training.sh
 # defaults: exclude 3600–4000 GeV trainpack, seed 123
 ```
+
+#### Contrastive learning (GLADC)
+
+Graph contrast aligns max-pooled, projected representations from clean and
+weight-perturbed encoders, using other graphs in the minibatch as negatives.
+The following examples use the same data, split, and 50-epoch recipe as above:
+
+```bash
+DATA_DIR=dataset/processed/lhco_canonical_leadingpt_sj30_unique6_logef
+SPLIT_MANIFEST=dataset/processed/splits/lhco_canonical_leadingpt_sj30_train80000b_val20000b_test340000b_20000s_monsig20000_seed42.npz
+
+PYTHONPATH=. $CONDA_PREFIX/bin/python -m src.training \
+  --data_dir "$DATA_DIR" --split_manifest "$SPLIT_MANIFEST" \
+  --output runs/gladc_contrast --model edge_graph --no_early_stop \
+  --contrast_weight 1.0 --contrast_source latent \
+  --contrast_projection_dim 128 --contrast_temperature 0.2 \
+  --perturb_scale 1.0
+```
+
+| Setting | Flag |
+|---------|------|
+| Contrast on EB3 (2D bottleneck by default) | `--contrast_source latent` |
+| Contrast on EB2 (64D hidden layer by default) | `--contrast_source eb2` |
+| Weaker encoder-weight perturbation | `--perturb_scale 0.1` |
+| Add latent cycle consistency | `--cycle_weight 0.05 --cycle_global_mode pooled` |
+
+`--contrast_weight` scales the contrastive term added to reconstruction loss;
+`--cycle_weight` independently scales the cycle term.
+
+#### Our adjacent-subjet regularizer
+
+The regularizer pulls neighboring subjet representations together along the
+input graph edges. It adds `lambda_topo * R` to reconstruction loss, where `R`
+is the graph-average sum of undirected edge lengths divided by node count.
+Using the paths set above:
+
+```bash
+PYTHONPATH=. $CONDA_PREFIX/bin/python -m src.training \
+  --data_dir "$DATA_DIR" --split_manifest "$SPLIT_MANIFEST" \
+  --output runs/adjacent_reg --model edge_graph --no_early_stop \
+  --topo_reg graph_eb3_attraction --lambda_topo 1.0
+```
+
+| Representation | `--topo_reg` | Example `--lambda_topo` |
+|----------------|--------------|-------------------------|
+| EB3 bottleneck | `graph_eb3_attraction` | `1.0` |
+| EB2 hidden layer | `graph_eb2_attraction` | `1.0` |
+| Both EB2 and EB3 | `graph_eb2_eb3_attraction` | `0.5,1.0` (EB2, EB3) |
+
+A single weight applies to both terms in the joint variant. Add `--topo_norm`
+to L2-normalize the representations used by the regularizer.
+
+To combine contrastive learning and regularization, add
+`--topo_reg graph_eb3_attraction --lambda_topo 1.0` to the contrastive command
+and use a separate `--output`, such as `runs/gladc_contrast_reg`.
+The weighted losses add together. Both examples keep reconstruction as the
+anomaly score; evaluate their `last.pt` checkpoints with the commands below.
 
 ### 5. Eval
 
