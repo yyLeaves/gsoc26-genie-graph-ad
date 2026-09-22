@@ -18,15 +18,35 @@ from src.eval.metrics import (
 )
 from src.eval.scoring import EVENT_SCORE_AGGREGATIONS, score_events
 from src.models import ensure_dataset_matches, load_model_and_spec
-from scripts.latent_tda_probe import load_model_legacy
+from scripts.analyze_adj_latent_geometry import load_edge_graph_ae
+from src.models.factory import ModelSpec
 
 
 def load_any(checkpoint: Path, device: torch.device):
     try:
         return load_model_and_spec(checkpoint, device)
-    except (ValueError, RuntimeError, KeyError):
-        model, spec, _ = load_model_legacy(checkpoint, device)
-        return model, spec
+    except (ValueError, RuntimeError, KeyError, TypeError):
+        model = load_edge_graph_ae(checkpoint, device)
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        raw = dict(payload["model"]["spec"])
+        if raw.get("type") in {"edgeae", "edge_ae"}:
+            raw["type"] = "edge_graph"
+        return model, ModelSpec(
+            type=raw["type"],
+            in_dim=int(raw["in_dim"]),
+            backbone=str(raw.get("backbone", "edgeconv")),
+            hidden_dim=int(raw.get("hidden_dim", 64)),
+            latent_dim=int(raw.get("latent_dim", 2)),
+            use_bn=bool(raw.get("use_bn", False)),
+            edge_dim=int(raw.get("edge_dim", 3)),
+            edge_weight=float(raw.get("edge_weight", 1.0)),
+            aggr=str(raw.get("aggr", "mean")),
+            dropout=float(raw.get("dropout", 0.0)),
+            dyn_k=int(raw.get("dyn_k", 16)),
+            feature_cols=tuple(raw["feature_cols"])
+            if raw.get("feature_cols") is not None else None,
+        )
+
 
 
 def main(args: argparse.Namespace) -> None:

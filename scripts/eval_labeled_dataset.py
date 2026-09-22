@@ -22,17 +22,38 @@ from src.eval.metrics import (
     classification_metrics,
     summarize_scores,
 )
-from src.eval.scoring import EVENT_SCORE_AGGREGATIONS, score_events
+from src.eval.scoring import (ANOMALY_SCORE_MODES, EVENT_SCORE_AGGREGATIONS,
+                              score_events)
 from src.models import ensure_dataset_matches, load_model_and_spec
-from scripts.latent_tda_probe import load_model_legacy
+from scripts.analyze_adj_latent_geometry import load_edge_graph_ae
 
 
 def load_any(checkpoint: Path, device: torch.device):
     try:
         return load_model_and_spec(checkpoint, device)
     except (ValueError, RuntimeError, KeyError, TypeError):
-        model, spec, _ = load_model_legacy(checkpoint, device)
-        return model, spec
+        model = load_edge_graph_ae(checkpoint, device)
+        # Minimal spec for ensure_dataset_matches / logging.
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        raw = dict(payload["model"]["spec"])
+        if raw.get("type") in {"edgeae", "edge_ae"}:
+            raw["type"] = "edge_graph"
+        from src.models.factory import ModelSpec
+        return model, ModelSpec(
+            type=raw["type"],
+            in_dim=int(raw["in_dim"]),
+            backbone=str(raw.get("backbone", "edgeconv")),
+            hidden_dim=int(raw.get("hidden_dim", 64)),
+            latent_dim=int(raw.get("latent_dim", 2)),
+            use_bn=bool(raw.get("use_bn", False)),
+            edge_dim=int(raw.get("edge_dim", 3)),
+            edge_weight=float(raw.get("edge_weight", 1.0)),
+            aggr=str(raw.get("aggr", "mean")),
+            dropout=float(raw.get("dropout", 0.0)),
+            dyn_k=int(raw.get("dyn_k", 16)),
+            feature_cols=tuple(raw["feature_cols"])
+            if raw.get("feature_cols") is not None else None,
+        )
 
 _SPLIT_ROLES = {
     "train": ("train_bkg_events", "train_sig_events"),
@@ -92,11 +113,12 @@ def main(args: argparse.Namespace) -> None:
     if args.split_manifest:
         print(f"Manifest   : {args.split_manifest}  split={args.split}")
     print(f"Aggregation: {args.event_score_agg}")
+    print(f"Jet score  : {args.anomaly_score}")
 
     t0 = time.time()
     scored = score_events(
         model, ds, device, batch_size=args.batch_size, indices=indices,
-        aggregation=args.event_score_agg)
+        aggregation=args.event_score_agg, score_mode=args.anomaly_score)
     metrics = summarize_scores(scored.scores, scored.labels)
     metrics["classification_at_max_sic_threshold"] = classification_metrics(
         scored.scores, scored.labels, metrics["best_sic_threshold"])
@@ -108,6 +130,7 @@ def main(args: argparse.Namespace) -> None:
         "split_manifest": args.split_manifest,
         "split": args.split,
         "event_score_aggregation": args.event_score_agg,
+        "anomaly_score": args.anomaly_score,
         "n_jets_scored": int(len(indices)),
         "n_events_scored": int(len(scored.scores)),
         "dataset_meta": {
@@ -152,6 +175,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--cache_shards", type=int, default=4)
     p.add_argument("--event_score_agg", default="sum",
                    choices=EVENT_SCORE_AGGREGATIONS)
+    p.add_argument("--anomaly_score", default="reconstruction",
+                   choices=ANOMALY_SCORE_MODES)
     p.add_argument("--cpu", action="store_true")
     return p.parse_args()
 
