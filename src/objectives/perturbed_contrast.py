@@ -22,8 +22,8 @@ def _perturbed_block(block, h, edge_index, edge_attr, scale: float):
     params = {}
     for name, param in block.named_parameters():
         detached = param.detach()
-        # Match the official GLADC implementation's ``param.std()`` exactly.
-        std = detached.std()
+        # Keep upstream sample std for tensors; a scalar has no spread.
+        std = detached.std() if detached.numel() > 1 else detached.new_zeros(())
         noise = torch.randn_like(detached) * std * scale
         params[name] = detached + noise
     return functional_call(block, params, (h, edge_index, edge_attr))

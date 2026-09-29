@@ -362,6 +362,23 @@ PYTHONPATH=. $CONDA_PREFIX/bin/python -m scripts.eval_labeled_dataset \
   --output_dir runs/<run>/<timestamp>/ks_eval
 ```
 
+## GLADC evaluation and tests
+
+`scripts.eval_cycle_components` evaluates reconstruction and cycle scores for one
+split; `scripts.eval_cycle_suite` evaluates LHCO, transfer signals, and BB1.
+Cycle scoring uses the representation saved in the checkpoint. A suite summary
+contains only results computed in that invocation (`--only_bb1` means BB1 only).
+
+`scripts/run_gladc_formal.sh` and `scripts/run_gladc_eb2.sh` run the existing
+latent/EB2 contrast experiments on GPUs 0–3 using the canonical manifests above.
+They use the active `python`, or the interpreter specified by `PYTHON`.
+
+Run the regression tests without training or using a GPU:
+
+```bash
+CUDA_VISIBLE_DEVICES='' python -m pytest -q tests
+```
+
 ## Notes
 
 - Metrics are computed at event level through `event_id`.

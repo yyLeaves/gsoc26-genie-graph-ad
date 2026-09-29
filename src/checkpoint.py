@@ -104,9 +104,17 @@ def require_training_state(payload: Mapping[str, Any]) -> dict[str, Any]:
     return state
 
 
+def checkpoint_cycle_mode(path: str | Path) -> str:
+    """Read the training representation; legacy checkpoints used pooled cycle."""
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    config = payload.get("run_config") or {}
+    return config.get("training", {}).get("cycle_global_mode", "pooled")
+
+
 __all__ = [
     "CHECKPOINT_FORMAT",
     "CHECKPOINT_VERSION",
+    "checkpoint_cycle_mode",
     "load_checkpoint",
     "require_training_state",
     "save_checkpoint",

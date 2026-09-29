@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from src.checkpoint import checkpoint_cycle_mode
 from src.data.dataset import JetDataset
 from src.eval.metrics import (
     best_f1_metrics,
@@ -95,6 +96,7 @@ def main(args: argparse.Namespace) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     model, model_spec = load_any(Path(args.checkpoint), device)
+    global_mode = checkpoint_cycle_mode(args.checkpoint)
     ds = JetDataset(args.data_dir, max_cache=args.cache_shards)
     ensure_dataset_matches(ds, model_spec)
 
@@ -114,11 +116,14 @@ def main(args: argparse.Namespace) -> None:
         print(f"Manifest   : {args.split_manifest}  split={args.split}")
     print(f"Aggregation: {args.event_score_agg}")
     print(f"Jet score  : {args.anomaly_score}")
+    if args.anomaly_score != "reconstruction":
+        print(f"Global cycle: {global_mode}")
 
     t0 = time.time()
     scored = score_events(
         model, ds, device, batch_size=args.batch_size, indices=indices,
-        aggregation=args.event_score_agg, score_mode=args.anomaly_score)
+        aggregation=args.event_score_agg, score_mode=args.anomaly_score,
+        cycle_global_mode=global_mode)
     metrics = summarize_scores(scored.scores, scored.labels)
     metrics["classification_at_max_sic_threshold"] = classification_metrics(
         scored.scores, scored.labels, metrics["best_sic_threshold"])
@@ -131,6 +136,7 @@ def main(args: argparse.Namespace) -> None:
         "split": args.split,
         "event_score_aggregation": args.event_score_agg,
         "anomaly_score": args.anomaly_score,
+        "cycle_global_mode": global_mode,
         "n_jets_scored": int(len(indices)),
         "n_events_scored": int(len(scored.scores)),
         "dataset_meta": {
