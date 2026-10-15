@@ -1,8 +1,7 @@
-"""NetGe variants: original, jet and relative-pT.
+"""NetGe variants: original, jet, relative-pT and max-message/bilinear.
 
-Original formulas are retained for comparison (see GLADC_LICENSE). Jet variants
-keep Unique-6 topology and reconstruct physical features. build_netge selects
-the implementation without wrapping modules or changing checkpoint keys.
+Original NetGe: https://github.com/XuexiongLuoMQ/GLADC.
+Jet variants keep Unique-6 connections and reconstruct physical features.
 """
 
 import torch
@@ -14,7 +13,14 @@ from .edgeconv import _DecoderBlock
 from ..losses import contrastive_loss
 
 
-NETGE_VARIANTS = ('original', 'jet', 'fraction')
+NETGE_VARIANTS = ('original', 'jet', 'fraction', 'max_bilinear')
+
+
+def dense_nodes(batch):
+    """Pack node features with the retained models' fixed 30-node padding."""
+    if torch.bincount(batch.batch).max() > 30:
+        raise ValueError('This model requires graphs with at most 30 subjets')
+    return to_dense_batch(batch.x, batch.batch, max_num_nodes=30)
 
 
 class _Encoder(nn.Module):
@@ -90,7 +96,7 @@ class NetGe(nn.Module):
           graph / reencoded_graph: corresponding graph vectors (B,128).
           noisy_graph: perturbed-encoder graph vectors (B,128), only with contrast=True.
         """
-        x, mask = to_dense_batch(batch.x, batch.batch, max_num_nodes=30)
+        x, mask = dense_nodes(batch)
         adjacency = to_dense_adj(batch.edge_index, batch.batch, max_num_nodes=30).gt(0).to(x)
         inputs = (x, adjacency)
         z, graph = self.shared_encoder(*inputs)
@@ -113,6 +119,7 @@ def pair_mask(mask):
 class _JetEncoder(nn.Module):
     def __init__(self, latent_dim):
         super().__init__()
+        self.aggr = 'mean'
         self.embedding = nn.Sequential(nn.Linear(1, 32), nn.GELU())
         self.self1 = nn.Linear(32, 64)
         self.message1 = nn.Sequential(nn.Linear(67, 64), nn.GELU(), nn.Linear(64, 64))
@@ -120,15 +127,18 @@ class _JetEncoder(nn.Module):
         self.message2 = nn.Sequential(nn.Linear(131, 64), nn.GELU(), nn.Linear(64, latent_dim))
         self.proj_head = nn.Sequential(nn.Linear(latent_dim, 128), nn.ReLU(), nn.Linear(128, 128))
 
+    def embed_nodes(self, x, edge_index, edge_attr):
+        return self.embedding(x)
+
     def forward(self, x, edge_index, edge_attr, mask):
         root, neighbor = edge_index
-        nodes = self.embedding(x.flatten(0, 1))
+        nodes = self.embed_nodes(x.flatten(0, 1), edge_index, edge_attr)
         messages = self.message1(torch.cat([nodes[root], nodes[neighbor]-nodes[root], edge_attr], -1))
         hidden = torch.nn.functional.gelu(
-            self.self1(nodes) + scatter(messages, root, dim=0, dim_size=len(nodes), reduce='mean')
+            self.self1(nodes) + scatter(messages, root, dim=0, dim_size=len(nodes), reduce=self.aggr)
         )
         messages = self.message2(torch.cat([hidden[root], hidden[neighbor]-hidden[root], edge_attr], -1))
-        z = self.self2(hidden) + scatter(messages, root, dim=0, dim_size=len(nodes), reduce='mean')
+        z = self.self2(hidden) + scatter(messages, root, dim=0, dim_size=len(nodes), reduce=self.aggr)
         z = z.reshape(*mask.shape, -1) * mask[..., None]
         graph = self.proj_head(z.masked_fill(~mask[..., None], -torch.inf).max(1).values)
         return z, graph
@@ -157,7 +167,7 @@ class NetGeJet(nn.Module):
 
     def reconstruct(self, batch, *, contrast=False):
         """Convert a PyG jet batch to the dense inputs used by all jet variants."""
-        x, mask = to_dense_batch(batch.x, batch.batch, max_num_nodes=30)
+        x, mask = dense_nodes(batch)
         adjacency = to_dense_adj(batch.edge_index, batch.batch, max_num_nodes=30).gt(0).to(x)
         edges = to_dense_adj(batch.edge_index, batch.batch, batch.edge_attr, max_num_nodes=30)
         return self(x, adjacency, mask, edges, contrast=contrast)
@@ -224,8 +234,8 @@ class _StandardizedJet(NetGeJet):
     """Standardized reconstruction shared by fraction and decoder extensions.
 
     Same dense inputs as NetGeJet. errors contains per-jet node/edge MSE and
-    reconstruction (their sum). latent/graph expose node/max-pooled codes;
-    edge_residual, edge_graph and edge_unique support score diagnostics.
+    reconstruction (their sum). latent/graph expose node/max-pooled codes.
+    node_prediction (B,N,1) and edge_prediction (E,3) are standardized predictions.
     linear_edges omits the edge MLP for decoder extensions.
     """
 
@@ -239,6 +249,13 @@ class _StandardizedJet(NetGeJet):
         self.register_buffer('edge_center', torch.zeros(3))
         self.register_buffer('edge_scale', torch.ones(3))
 
+    def _decode_edges(self, left, right):
+        endpoints = torch.cat([torch.minimum(left, right), torch.maximum(left, right)], -1)
+        prediction = self.edge_direct(endpoints)
+        if self.edge_decoder is not None:
+            prediction = self.edge_decoder(endpoints) + prediction
+        return prediction
+
     def forward(self, x, adjacency, mask, edges, *, contrast=False):
         if contrast:
             raise ValueError('This reconstruction model has no contrastive branch')
@@ -250,10 +267,7 @@ class _StandardizedJet(NetGeJet):
         latent, graph_code = self.shared_encoder(nodes, edge_index, attributes, mask)
         flat = latent.flatten(0, 1)
         left, right = flat[edge_index[0]], flat[edge_index[1]]
-        endpoints = torch.cat([torch.minimum(left, right), torch.maximum(left, right)], -1)
-        predicted_edges = self.edge_direct(endpoints)
-        if self.edge_decoder is not None:
-            predicted_edges = self.edge_decoder(endpoints) + predicted_edges
+        predicted_edges = self._decode_edges(left, right)
         nodes = flat
         for block in self.node_decoder:
             nodes = block(nodes, edge_index)
@@ -263,8 +277,8 @@ class _StandardizedJet(NetGeJet):
         edge_error = scatter(edge_residual.square().mean(-1), graph,
                              dim=0, dim_size=len(x), reduce='mean')
         return dict(errors=dict(node=node_error, edge=edge_error, reconstruction=node_error + edge_error),
-                    edge_residual=edge_residual, edge_graph=graph, edge_unique=source < target,
-                    latent=latent, graph=graph_code)
+                    latent=latent, graph=graph_code,
+                    node_prediction=nodes, edge_prediction=predicted_edges)
 
     def scores(self, output):
         return output['errors']
@@ -298,9 +312,87 @@ class NetGeFraction(_StandardizedJet):
         return super().forward(log_fractions(x, mask), adjacency, mask, edges, contrast=contrast)
 
 
-def build_netge(variant='original'):
-    """Select a NetGe variant; all versions retain their own parameter names."""
+class NetGeMaxBilinear(_StandardizedJet):
+    """Max-message encoder and symmetric bilinear edges, with 2D node latents.
+
+    Uses ln(pT), fixed Unique-6 edges and training-only feature standardization.
+    Objective: per-jet node MSE + physical-edge MSE, averaged over jets.
+    """
+
+    variant = 'max_bilinear'
+
+    def __init__(self):
+        super().__init__(latent_dim=2, linear_edges=True)
+        self.shared_encoder.aggr = 'max'
+        self.edge_bilinear = nn.Parameter(torch.zeros(3, 3))
+
+    def _decode_edges(self, left, right):
+        # Symmetric cross-endpoint products for the two latent coordinates.
+        products = torch.stack([
+            left[:, 0] * right[:, 0],
+            left[:, 0] * right[:, 1] + left[:, 1] * right[:, 0],
+            left[:, 1] * right[:, 1],
+        ], dim=-1)
+        return super()._decode_edges(left, right) + nn.functional.linear(products, self.edge_bilinear)
+
+
+class NetGeGLADC(NetGeMaxBilinear):
+    """Max/bilinear AE with cycle/contrastive training; reconstruction scoring."""
+
+    def __init__(self, objective='full'):
+        super().__init__()
+        self.use_cycle = objective in ('cycle', 'full')
+        # Add the projection without changing AE initialization or the sampling stream.
+        with torch.random.fork_rng(devices=[]):
+            self.graph_projection = nn.Sequential(nn.Linear(2, 128), nn.ReLU(), nn.Linear(128, 128))
+
+    @torch.no_grad()
+    def perturbed_graph(self, inputs):
+        parameters = {}
+        for name, parameter in self.shared_encoder.named_parameters():
+            value = parameter.detach()
+            parameters[name] = value + torch.randn_like(value) * value.std()
+        _, pooled = functional_call(self.shared_encoder, parameters, inputs)
+        return self.graph_projection(pooled)
+
+    def forward(self, x, adjacency, mask, edges, *, contrast=False):
+        output = super().forward(x, adjacency, mask, edges)
+        graph, source, target = adjacency.nonzero(as_tuple=True)
+        edge_index = torch.stack([graph * x.shape[1] + source, graph * x.shape[1] + target])
+        output['clean_graph'] = self.graph_projection(output['graph'])
+        if contrast:
+            nodes = (x - self.node_center) / self.node_scale * mask[..., None]
+            attributes = (edges[graph, source, target] - self.edge_center) / self.edge_scale
+            output['noisy_graph'] = self.perturbed_graph((nodes, edge_index, attributes, mask))
+        if self.use_cycle:
+            reconstructed = output['node_prediction'] * mask[..., None]
+            zhat, pooled = self.shared_encoder(reconstructed, edge_index, output['edge_prediction'], mask)
+            ghat = self.graph_projection(pooled)
+            output.update(reencoded=zhat, reencoded_graph=ghat)
+            output['cycle_errors'] = dict(
+                node_cycle=((zhat - output['latent']).square().mean(-1) * mask).sum(1) / mask.sum(1),
+                graph_cycle=(ghat - output['clean_graph']).square().mean(-1),
+            )
+        return output
+
+    def objective(self, output, *, cycle_weight=0., contrast_weight=0.):
+        losses = {key: value.mean() for key, value in output['errors'].items()}
+        objective = losses['reconstruction']
+        if cycle_weight:
+            cycle = {key: value.mean() for key, value in output['cycle_errors'].items()}
+            losses.update(cycle)
+            objective = objective + cycle_weight * (cycle['node_cycle'] + cycle['graph_cycle'])
+        if contrast_weight:
+            losses['contrast'] = contrastive_loss(output['noisy_graph'], output['clean_graph'])
+            objective = objective + contrast_weight * losses['contrast']
+        return dict(losses, objective=objective)
+
+
+def build_netge(variant='original', *, objective='reconstruction'):
+    """Select a backbone and enable its auxiliary tasks when requested."""
     if variant == 'original':
         return NetGe()
-    implementations = {'jet': NetGeJet, 'fraction': NetGeFraction}
+    if variant == 'max_bilinear' and objective != 'reconstruction':
+        return NetGeGLADC(objective)
+    implementations = {'jet': NetGeJet, 'fraction': NetGeFraction, 'max_bilinear': NetGeMaxBilinear}
     return implementations[variant]()

@@ -1,4 +1,4 @@
-"""Save KS event indices for one signal, run 0 and ensemble member 0."""
+"""Save KS training, validation and test indices for one signal."""
 
 import argparse
 from pathlib import Path

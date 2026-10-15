@@ -14,17 +14,15 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from threadpoolctl import threadpool_limits
 
 from src.metrics import score_metrics
+from src.kitchensink import FEATURE_SETS, SIGNALS, SOURCES
+from src.splits import SIGNAL_COUNTS
 
 
 SEED = 42
-SIGNALS = ('LHCO', 'XtoWRto3W', 'XtoYYprime', 'ZpToTpTp', 'YtoHHto4T')
-# Source codes in the prepared events.npz files, not graph-file row identities.
-SOURCES = ('LHCO', 'extra_qcd', *SIGNALS[1:])
-FEATURE_SETS = ('baseline', 'subjettiness', 'efp', 'combined')
 
 
-def load_features(feature_dir, feature):
-    """Load author-built columns in their saved order; EFP reuses the Combined cache."""
+def load_features(feature_dir, feature, sources=SOURCES):
+    """Return columns and source -> (matrix, column indices); keep EFP/Combined memory-mapped."""
     if feature in ('baseline', 'subjettiness'):
         frame = pd.read_hdf(feature_dir / 'LHCO' / f'{feature}.h5', start=0, stop=1)
         columns = list(frame.columns[1:-1])
@@ -34,26 +32,30 @@ def load_features(feature_dir, feature):
             columns = [name for name in columns if name in ('mj1', 'mdiff') or name.startswith('EFP')]
 
     banks = {}
-    for source in SOURCES:
+    for source in sources:
         folder = feature_dir / source
         if feature in ('baseline', 'subjettiness'):
             frame = pd.read_hdf(folder / f'{feature}.h5')
-            banks[source] = frame[columns].to_numpy(dtype=np.float32)
+            matrix = frame[columns].to_numpy(dtype=np.float32)
+            indices = np.arange(len(columns))
         else:
             metadata = json.loads((folder / 'combined.json').read_text())
             matrix = np.load(folder / 'combined.npy', mmap_mode='r')
             indices = [metadata['columns'].index(name) for name in columns]
-            banks[source] = matrix[:, indices]
+        banks[source] = matrix, indices
     return columns, banks
 
 
 def assemble(events, banks):
     """Join feature rows in the exact order of the selected event identities."""
-    matrix = np.empty((len(events), next(iter(banks.values())).shape[1]), dtype=np.float32)
+    _, columns = next(iter(banks.values()))
+    matrix = np.empty((len(events), len(columns)), dtype=np.float32)
     for code, source in enumerate(SOURCES):
         selected = events['source'] == code
         if selected.any():
-            matrix[selected] = banks[source][events['row'][selected]]
+            values, indices = banks[source]
+            rows = events['row'][selected]
+            matrix[selected] = values[np.ix_(rows, indices)]
     return matrix
 
 
@@ -65,8 +67,7 @@ def train_model(folder, feature, signal, n_signal, columns, banks, events):
     positive_weight = len(target) / target.sum() - 1
     weight = np.where(target == 1, positive_weight, 1.)
 
-    # Match the existing KS run: sklearn splits the pool internally, not a second
-    # split of events['train']. Truth labels and mJJ are not classifier inputs.
+    # Let sklearn split the full pool internally, matching the KS run.
     model = HistGradientBoostingClassifier(
         max_iter=200, max_leaf_nodes=31, validation_fraction=.5, random_state=SEED,
     )
@@ -97,7 +98,6 @@ def evaluate(folder, checkpoint, events_file, model, config, banks, events):
     folder.mkdir(parents=True, exist_ok=True)
     test = events['test']
     scores = model.predict_proba(assemble(test, banks))[:, 1]
-    # Reuse the saved metadata instead of duplicating it for every feature set.
     with (folder / 'scores.npz').open('xb') as file:
         np.savez_compressed(file, score=scores)
     result = score_metrics(scores, test['truth'])
@@ -119,17 +119,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--feature-sets', nargs='+', choices=FEATURE_SETS, default=list(FEATURE_SETS))
     parser.add_argument('--signals', nargs='+', choices=SIGNALS, default=list(SIGNALS))
-    parser.add_argument('--n-signal', nargs='+', type=int, choices=range(0, 1001, 50), default=[1000])
+    parser.add_argument('--n-signal', nargs='+', type=int, choices=SIGNAL_COUNTS, default=[1000])
     parser.add_argument('--feature-dir', type=Path, default=Path('data/features/kitchensink'))
     parser.add_argument('--split-dir', type=Path,
-                        default=Path('runs/kitchensink_cwola_nsig_scan/seed42/data'))
+                        default=Path('data/splits/kitchensink'))
     parser.add_argument('--output-dir', type=Path, default=Path('runs/kitchensink_cwola/seed42'))
     parser.add_argument('--threads', type=int, default=8)
     args = parser.parse_args()
 
     with threadpool_limits(limits=args.threads):
         for feature in args.feature_sets:
-            columns, banks = load_features(args.feature_dir, feature)
+            sources = tuple(dict.fromkeys(('LHCO', 'extra_qcd', *args.signals)))
+            columns, banks = load_features(args.feature_dir, feature, sources)
             zero_model = None
             for n_signal in args.n_signal:
                 for signal in args.signals:

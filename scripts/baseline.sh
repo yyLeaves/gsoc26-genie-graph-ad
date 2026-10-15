@@ -18,15 +18,11 @@ for signal in "${signals[@]}"; do
     output="$runs_dir/baseline_cwola_nsig${n_signal}/seed42/$signal"
 
     python -u -m scripts.train \
-        --split-file "$split" --graph-dir data/graphs --sample SR \
-        --model edgeconv --objective reconstruction --score total \
-        --epochs 50 --eval-interval 5 --batch-size 256 --lr 0.003 \
-        --edge-weight 1 --reg-weight 0 --seed 42 \
+        --split-file "$split" --sample SR --model edgeconv \
         --device "$device" --num-workers "$num_workers" --output-dir "$output"
 
     python -u -m scripts.inference \
         --checkpoint "$output/last.pt" --split-file "$split" \
-        --graph-dir data/graphs --split test --score total \
         --batch-size 256 --device "$device" --num-workers "$num_workers" \
         --output "$output/test_scores.npz"
 done

@@ -42,7 +42,7 @@ def signal_region(events):
     return (events['mjj'] > 3.3) & (events['mjj'] < 3.7)
 
 
-def make_splits(background, signal, extra_background, *, mode='CWoLa', n_signal=1000):
+def make_samples(background, signal, extra_background, *, mode='CWoLa', n_signal=1000):
     """Inject n_signal BEFORE the mass cuts and the 120000-event SR cap.
     Weak labels: SR=1, reference=0; truth: background=0, signal=1.
     Test events have weak_label=-1.
@@ -71,12 +71,17 @@ def make_splits(background, signal, extra_background, *, mode='CWoLa', n_signal=
 
     np.random.RandomState(rng.randint(300)).shuffle(pool)
 
+    held_out_signal = signal[n_signal:]
+    test_signal = held_out_signal[signal_region(held_out_signal)][:TEST_SIGNAL_CAP]
+    test = np.concatenate([remaining_test_background, test_signal, reserved_test_background])
+    return pool, test
+
+
+def make_splits(background, signal, extra_background, *, mode='CWoLa', n_signal=1000):
+    """Split the training pool in half using the KS run-0/member-0 split seed."""
+    pool, test = make_samples(background, signal, extra_background, mode=mode, n_signal=n_signal)
     split_seed = np.random.RandomState(1 + n_signal).randint(np.iinfo(np.uint32).max, dtype='u8')
     train, validation = train_test_split(
         pool, test_size=0.5, stratify=pool['weak_label'], random_state=split_seed,
     )
-
-    held_out_signal = signal[n_signal:]
-    test_signal = held_out_signal[signal_region(held_out_signal)][:TEST_SIGNAL_CAP]
-    test = np.concatenate([remaining_test_background, test_signal, reserved_test_background])
     return {'train': train, 'validation': validation, 'test': test}

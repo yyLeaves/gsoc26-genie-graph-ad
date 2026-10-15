@@ -18,15 +18,11 @@ for signal in "${signals[@]}"; do
     output="$runs_dir/reg_calibration_cwola_nsig${n_signal}/seed42/$signal/reg"
 
     python -u -m scripts.train \
-        --split-file "$split" --graph-dir data/graphs --sample SR \
-        --model edgeconv --objective reconstruction --score total \
-        --epochs 50 --eval-interval 5 --batch-size 256 --lr 0.003 \
-        --edge-weight 1 --reg-weight 1 --seed 42 \
+        --split-file "$split" --sample SR --model edgeconv --reg-weight 1 \
         --device "$device" --num-workers "$num_workers" --output-dir "$output"
 
     python -u -m scripts.inference \
         --checkpoint "$output/last.pt" --split-file "$split" \
-        --graph-dir data/graphs --split test --score total \
         --batch-size 256 --device "$device" --num-workers "$num_workers" \
         --output "$output/test_scores.npz"
 done

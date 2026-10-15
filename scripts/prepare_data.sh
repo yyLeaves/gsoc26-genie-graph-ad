@@ -33,4 +33,7 @@ for signal in "${signals[@]}"; do
     python -m scripts.make_splits --mode "$mode" --signal "$signal" --n-signal "$n_signal"
 done
 python -m scripts.preprocess --datasets "${sources[@]}"
+if [[ " ${sources[*]} " == *" BB1 "* ]]; then
+    python -m scripts.make_bb1_splits
+fi
 python -m scripts.build_graph --datasets "${sources[@]}"

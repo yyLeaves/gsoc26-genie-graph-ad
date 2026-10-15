@@ -12,7 +12,7 @@ from src.calibration import fit_calibration
 from src.checkpoint import load_checkpoint
 from src.dataset import EventDataset
 from src.models import create_model
-from src.scoring import score_pair_loader, scoring_options
+from src.scoring import score_pair_loader
 
 
 def main():
@@ -22,35 +22,42 @@ def main():
     parser.add_argument('--split-file', type=Path, required=True)
     parser.add_argument('--sample', choices=['SR', 'reference'], required=True,
                         help='validation subset; reference = CWoLa SB or IAD extra QCD')
-    parser.add_argument('--graph-dir', type=Path, default=Path('data/graphs'))
+    parser.add_argument('--graph-dir', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--batch-size', type=int, default=128, help='events per batch')
     parser.add_argument('--device', default='cpu')
     parser.add_argument('--num-workers', type=int, default=0)
     args = parser.parse_args()
 
+    models, checkpoints, model_scores = {}, {}, {}
+    for name, path in [('baseline', args.baseline_checkpoint), ('reg', args.reg_checkpoint)]:
+        checkpoint = load_checkpoint(path)
+        model_settings = checkpoint['settings']
+        model_settings['graph_dir'] = str(Path(args.graph_dir or model_settings['graph_dir']).resolve())
+        model = create_model(model_settings)
+        model.load_state_dict(checkpoint['model'])
+        models[name], checkpoints[name] = model.to(args.device), checkpoint
+        model_scores[name] = model_settings['score']
+    args.graph_dir = args.graph_dir or Path(checkpoints['baseline']['settings']['graph_dir'])
     dataset = EventDataset(args.split_file, split='validation', graph_dir=args.graph_dir)
     indices = np.flatnonzero(dataset.events['weak_label'] == {'SR': 1, 'reference': 0}[args.sample])
     if len(indices) == 0:
         parser.error(f'No {args.sample} events in validation')
     loader = DataLoader(Subset(dataset, indices), batch_size=args.batch_size, shuffle=False,
                         num_workers=args.num_workers)
-    models, checkpoints, model_scores = {}, {}, {}
-    for name, path in [('baseline', args.baseline_checkpoint), ('reg', args.reg_checkpoint)]:
-        checkpoint = load_checkpoint(path)
-        model_settings = checkpoint['settings']
-        model = create_model(model_settings)
-        model.load_state_dict(checkpoint['model'])
-        models[name], checkpoints[name] = model.to(args.device), checkpoint
-        default_score, _ = scoring_options(model_settings.get('model', 'edgeconv'),
-                                           variant=model_settings.get('netge_variant', 'original'))
-        model_scores[name] = model_settings.get('score', default_score)
+    reg_loader = None
+    reg_graph_dir = Path(checkpoints['reg']['settings']['graph_dir'])
+    if reg_graph_dir != args.graph_dir.resolve():
+        reg_dataset = EventDataset(args.split_file, split='validation', graph_dir=reg_graph_dir)
+        reg_loader = DataLoader(Subset(reg_dataset, indices), batch_size=args.batch_size, shuffle=False,
+                                num_workers=args.num_workers)
     baseline_edge_weight = checkpoints['baseline']['settings']['edge_weight']
     reg_edge_weight = checkpoints['reg']['settings']['edge_weight']
     print(f'Calibrating on {len(indices):,} validation {args.sample} events', flush=True)
     scores = score_pair_loader(models['baseline'], models['reg'], loader, args.device,
                                baseline_edge_weight=baseline_edge_weight, reg_edge_weight=reg_edge_weight,
-                               baseline_score=model_scores['baseline'], reg_score=model_scores['reg'])
+                               baseline_score=model_scores['baseline'], reg_score=model_scores['reg'],
+                               reg_loader=reg_loader)
     calibration = fit_calibration(scores)
     settings = {key: str(value.resolve()) if isinstance(value, Path) else value
                 for key, value in vars(args).items()}

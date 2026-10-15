@@ -21,17 +21,15 @@ for signal in "${signals[@]}"; do
     regularized_checkpoint="${REGULARIZED_CHECKPOINT:-$output/reg/last.pt}"
     calibration_dir="${RUN_DIR:-$output/calibration}"
 
-    # Fit on this signal's SR validation mixture, using the two completed models.
     python -u -m scripts.calibrate \
         --baseline-checkpoint "$baseline_checkpoint" \
         --reg-checkpoint "$regularized_checkpoint" \
-        --split-file "$split" --graph-dir data/graphs --sample SR \
+        --split-file "$split" --sample SR \
         --batch-size 256 --device "$device" --num-workers "$num_workers" \
         --output "$calibration_dir/calibration.pt"
 
     python -u -m scripts.inference \
         --calibration "$calibration_dir/calibration.pt" --split-file "$split" \
-        --graph-dir data/graphs --split test --score total \
         --batch-size 256 --device "$device" --num-workers "$num_workers" \
         --output "$calibration_dir/test_scores.npz"
 done

@@ -1,4 +1,4 @@
-"""Event-level AUC and SIC, with separate previous-baseline and KS cuts."""
+"""Event-level AUC and SIC with baseline and KS efficiency cuts."""
 
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve

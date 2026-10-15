@@ -1,4 +1,4 @@
-"""Plot Top 1%, 0.1%, 0.01% mass selections from an inference NPZ; no inference."""
+"""Plot Top 1%, 0.1%, 0.01% mass selections from saved event scores."""
 
 import argparse
 import json
@@ -43,7 +43,6 @@ def read_scores(path, score_key):
     identifiers = np.column_stack([events['source'], events['row']])
     if len(np.unique(identifiers, axis=0)) != size:
         raise ValueError('Duplicate (source, row) event identifiers')
-    # Convert only the coordinate units, never scores or event weights.
     events['mjj'] = events['mjj'].astype(np.float64) * {'GeV': 1., 'TeV': 1000.}[metadata['mass_unit']]
     return events, metadata
 

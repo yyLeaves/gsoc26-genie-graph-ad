@@ -1,4 +1,4 @@
-"""Baseline graphs: up to 30 exclusive-kT subjets with Unique-6 edges.
+"""Exclusive-kT subjet graphs with Unique-6 edges; default maximum 30 subjets.
 
 For event r and jet j, graph index g = 2*r+j. Slice nodes with
 node_offsets[g:g+2] and edges with edge_offsets[g:g+2]. Stored edge_index
@@ -18,7 +18,7 @@ N_NEIGHBOURS = 6
 FOUR_VECTOR_COLUMNS = ('px', 'py', 'pz', 'E')
 
 
-def recluster_subjets(constituents, offsets):
+def recluster_subjets(constituents, offsets, *, max_subjets=N_SUBJETS):
     """Batch exclusive-kT R=1 reclustering; smaller jets remain unpadded."""
     momentum = np.asarray(constituents[:, :3], dtype=np.float64)
     # Restore massless energies after float32 storage of constituent four-vectors.
@@ -29,12 +29,12 @@ def recluster_subjets(constituents, offsets):
     )
     constituent_counts = np.diff(offsets)
     particles_by_jet = ak.unflatten(particles, constituent_counts)
-    needs_clustering = constituent_counts > N_SUBJETS
+    needs_clustering = constituent_counts > max_subjets
     subjets = particles_by_jet
     if needs_clustering.any():
         definition = fastjet.JetDefinition(fastjet.kt_algorithm, 1.0)
         sequence = fastjet.ClusterSequence(particles_by_jet[needs_clustering], definition)
-        clustered_subjets = sequence.exclusive_jets(n_jets=N_SUBJETS)
+        clustered_subjets = sequence.exclusive_jets(n_jets=max_subjets)
         grouped_subjets = ak.concatenate([particles_by_jet[~needs_clustering], clustered_subjets])
 
         # Concatenation puts unclustered jets first; restore the original jet order.
@@ -95,6 +95,7 @@ def build_graph(nodes):
     pt = np.hypot(px, py)
     # Merged subjets are massive: use rapidity, not pseudorapidity.
     rapidity = 0.5 * np.log((energy + pz) / (energy - pz))
+    rapidity -= np.sum(pt * rapidity) / (pt.sum() + 1e-12)
     phi = np.arctan2(py, px)
     phi_center = np.arctan2(np.sum(pt * np.sin(phi)), np.sum(pt * np.cos(phi)))
     pos = np.column_stack([
@@ -113,7 +114,8 @@ def build_graph(nodes):
     }
 
 
-def build_graph_file(input_path, output_path, *, batch_size=1000):
+def build_graph_file(input_path, output_path, *, batch_size=1000,
+                     max_subjets=N_SUBJETS):
     """Stream a processed jet file into one packed graph file shared by all splits."""
     input_path, output_path = Path(input_path), Path(output_path)
     if input_path.resolve() == output_path.resolve():
@@ -130,11 +132,11 @@ def build_graph_file(input_path, output_path, *, batch_size=1000):
         attrs.source_file = source.root._v_attrs.source_file
         attrs.mass_unit = source.root._v_attrs.mass_unit
         attrs.momentum_unit = 'GeV'
-        attrs.max_subjets = N_SUBJETS
+        attrs.max_subjets = max_subjets
         attrs.subjet_algorithm = 'exclusive_kt'
         attrs.subjet_radius = 1.0
         attrs.node_features = 'ln_pt'
-        attrs.position = 'rapidity,relative_phi'
+        attrs.position = 'relative_rapidity,relative_phi'
         attrs.neighbours = N_NEIGHBOURS
         attrs.edge_features = 'ln_theta,ln_kt,ln_z'
         attrs.edge_pt_scale = 'normalized'
@@ -152,7 +154,7 @@ def build_graph_file(input_path, output_path, *, batch_size=1000):
             stop = min(start + batch_size, source.root.row.nrows)
             offsets = source.root.offsets[2*start:2*stop+1]
             constituents = source.root.constituents[offsets[0]:offsets[-1]]
-            subjets = recluster_subjets(constituents, offsets - offsets[0])
+            subjets = recluster_subjets(constituents, offsets - offsets[0], max_subjets=max_subjets)
             counts = ak.to_numpy(ak.num(subjets, axis=1))
             bounds = np.r_[0, np.cumsum(counts)]
             flat = ak.flatten(subjets, axis=1)

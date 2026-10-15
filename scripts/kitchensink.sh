@@ -2,9 +2,9 @@
 set -euo pipefail
 
 read -r -a features <<< "${FEATURES:-baseline subjettiness efp combined}"
-read -r -a n_signal <<< "${NSIG:-1000}"  # space-separated values: 0, 50, ..., 1000
+read -r -a n_signal <<< "${NSIG:-1000}"  # space-separated values: 0, 50, 100, 500, 1000
 feature_dir="${FEATURE_DIR:-data/features/kitchensink}"
-split_dir="${SPLIT_DIR:-runs/kitchensink_cwola_nsig_scan/seed42/data}"
+split_dir="${SPLIT_DIR:-data/splits/kitchensink}"
 run_dir="${RUN_DIR:-runs/kitchensink_cwola/seed42}"
 threads="${THREADS:-8}"
 signals=("$@")                       # default: all five signals
@@ -14,6 +14,10 @@ fi
 
 cd "$(dirname "$0")/.."
 export OMP_NUM_THREADS="$threads" OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+
+python -m scripts.prepare_kitchensink \
+    --feature-sets "${features[@]}" --n-signal "${n_signal[@]}" --signals "${signals[@]}" \
+    --feature-dir "$feature_dir" --split-dir "$split_dir"
 
 exec python -u -m scripts.kitchensink \
     --feature-sets "${features[@]}" --n-signal "${n_signal[@]}" --signals "${signals[@]}" \

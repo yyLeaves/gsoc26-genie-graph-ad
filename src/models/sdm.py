@@ -1,7 +1,7 @@
-"""SDM-NAT from the ICML 2025 paper, not an author-code port.
+"""Paper-based SDM-ATII: variational graph generation and a Wasserstein critic.
 
-See SDM.md for the explicit reduction, masking and architecture choices.
-Only node features and adjacency are used; physical edge features are ignored.
+Inputs: ln(pT) nodes and binary adjacency, without physical edge features.
+Implementation choices and adaptations are recorded in docs/atii.md.
 """
 
 import torch
@@ -10,134 +10,111 @@ from torch_geometric.nn import DenseGINConv
 from torch_geometric.utils import to_dense_adj, to_dense_batch
 
 
-def _pair_mask(mask):
-    """Real, distinct node pairs; GIN handles its own self contribution."""
-    diagonal = torch.eye(mask.shape[1], device=mask.device, dtype=torch.bool)
-    return mask[:, :, None] & mask[:, None, :] & ~diagonal
+def dense_graph(jets):
+    """PyG jets -> x (B,N,1), adjacency (B,N,N), and real-node/pair masks."""
+    x, mask = to_dense_batch(jets.x, jets.batch)
+    adjacency = to_dense_adj(jets.edge_index, jets.batch, max_num_nodes=x.shape[1])
+    diagonal = torch.eye(x.shape[1], dtype=torch.bool, device=x.device)
+    pair_mask = mask[:, :, None] & mask[:, None, :] & ~diagonal
+    return dict(x=x, adjacency=adjacency.gt(0).to(x) * pair_mask,
+                mask=mask, pair_mask=pair_mask)
 
 
-def _dense_inputs(batch):
-    x, mask = to_dense_batch(batch.x, batch.batch)
-    adjacency = to_dense_adj(batch.edge_index, batch.batch, max_num_nodes=x.shape[1])
-    adjacency = adjacency.gt(0).to(x) * _pair_mask(mask)
-    return x, adjacency, mask
+class GIN(nn.Module):
+    """Concatenate three 16-channel node embeddings; self contribution has eps=0."""
 
-
-class _GIN(nn.Module):
-    """Three 16-channel GIN layers, concatenated at each real node (Eq. 8)."""
-
-    def __init__(self, layer_norm=True):
+    def __init__(self):
         super().__init__()
-        self.layers = nn.ModuleList([
-            DenseGINConv(nn.Sequential(
-                nn.Linear(size, 16),
-                nn.ReLU(),
-                nn.Linear(16, 16),
-                nn.LayerNorm(16) if layer_norm else nn.Identity(),
-                nn.ReLU(),
-            ))
-            for size in (1, 16, 16)
-        ])
+        self.layers = nn.ModuleList()
+        for in_channels in (1, 16, 16):
+            mlp = nn.Sequential(nn.Linear(in_channels, 16), nn.ReLU(),
+                                nn.Linear(16, 16), nn.ReLU())
+            self.layers.append(DenseGINConv(mlp))
 
     def forward(self, x, adjacency, mask):
-        x = x * mask[..., None]
-        adjacency = adjacency * _pair_mask(mask)
-        layers = []
+        hidden = []
         for layer in self.layers:
             x = layer(x, adjacency, mask)
-            layers.append(x)
-        return torch.cat(layers, dim=-1)
+            hidden.append(x)
+        return torch.cat(hidden, dim=-1)
 
 
-class _VariationalEncoder(nn.Module):
-    """Node-wise Gaussian latents; separate copies generate attributes and adjacency."""
+class GaussianEncoder(nn.Module):
+    """Per-node Gaussian posterior, sampled with the reparameterization trick."""
 
-    def __init__(self, layer_norm=True):
+    def __init__(self):
         super().__init__()
-        self.backbone = _GIN(layer_norm)
+        self.gin = GIN()
         self.mean = DenseGINConv(nn.Linear(48, 10))
         self.log_std = DenseGINConv(nn.Linear(48, 10))
-        # Start at N(0, I); the paper does not specify posterior initialization.
-        for head in (self.mean, self.log_std):
-            nn.init.zeros_(head.nn.weight)
-            nn.init.zeros_(head.nn.bias)
 
-    def forward(self, x, adjacency, mask):
-        hidden = self.backbone(x, adjacency, mask)
+    def forward(self, graph):
+        x, adjacency, mask = graph['x'], graph['adjacency'], graph['mask']
+        hidden = self.gin(x, adjacency, mask)
         mean = self.mean(hidden, adjacency, mask)
-        # Same upper log-std bound as PyG VGAE; KL uses this same distribution.
+        # PyG VGAE's upper bound; sampling and KL use this same log standard deviation.
         log_std = self.log_std(hidden, adjacency, mask).clamp(max=10)
-        latent = (mean + torch.randn_like(mean) * log_std.exp()) * mask[..., None]
-        return latent, mean, log_std
+        z = (mean + torch.randn_like(mean) * log_std.exp()) * mask[..., None]
+        return z, (mean, log_std)
 
 
-class _Generator(nn.Module):
-    def __init__(self, layer_norm=True):
+class GraphGenerator(nn.Module):
+    """Independent node/structure posteriors; continuous, symmetric adjacency."""
+
+    def __init__(self):
         super().__init__()
-        self.node_encoder = _VariationalEncoder(layer_norm)
-        self.adjacency_encoder = _VariationalEncoder(layer_norm)
+        self.node_encoder = GaussianEncoder()
+        self.structure_encoder = GaussianEncoder()
         self.node_decoder = nn.Sequential(nn.Linear(10, 16), nn.ReLU(), nn.Linear(16, 1))
 
-    def forward(self, x, adjacency, mask):
-        node_z, node_mean, node_log_std = self.node_encoder(x, adjacency, mask)
-        edge_z, edge_mean, edge_log_std = self.adjacency_encoder(x, adjacency, mask)
-        generated_x = self.node_decoder(node_z) * mask[..., None]
-        adjacency_logits = edge_z @ edge_z.transpose(1, 2)
-        # Keep continuous probabilities: classifier gradients reach edge_z.
-        generated_adjacency = adjacency_logits.sigmoid() * _pair_mask(mask)
-        return dict(
-            node=generated_x,
-            adjacency=generated_adjacency,
-            adjacency_logits=adjacency_logits,
-            posteriors=((node_mean, node_log_std), (edge_mean, edge_log_std)),
-        )
+    def forward(self, graph):
+        node_z, node_posterior = self.node_encoder(graph)
+        structure_z, structure_posterior = self.structure_encoder(graph)
+        node = self.node_decoder(node_z) * graph['mask'][..., None]
+        adjacency_logits = structure_z @ structure_z.transpose(1, 2)
+        adjacency = adjacency_logits.sigmoid() * graph['pair_mask']
+        return dict(node=node, adjacency=adjacency, adjacency_logits=adjacency_logits,
+                    posteriors=(node_posterior, structure_posterior))
 
 
-class _Classifier(nn.Module):
-    def __init__(self, layer_norm=True):
+class GraphCritic(nn.Module):
+    """GIN + global sum pooling -> one unconstrained real-valued score per jet."""
+
+    def __init__(self):
         super().__init__()
-        self.backbone = _GIN(layer_norm)
-        self.head = nn.Sequential(nn.Linear(48, 16), nn.ReLU(), nn.Linear(16, 1))
+        self.gin = GIN()
+        self.readout = nn.Sequential(nn.Linear(48, 16), nn.ReLU(), nn.Linear(16, 1))
 
     def forward(self, x, adjacency, mask):
-        nodes = self.backbone(x, adjacency, mask)
-        graph = nodes.sum(dim=1)  # Global sum pooling over real nodes.
-        return self.head(graph).squeeze(-1)
+        nodes = self.gin(x * mask[..., None], adjacency, mask)
+        return self.readout(nodes.sum(dim=1)).squeeze(-1)
 
 
-class SDMNAT(nn.Module):
-    """Jointly trained generator/classifier; classifier-only inference, normal logit."""
+class SDMATII(nn.Module):
+    """Eq. (15) / Algorithm 2: alternating generator and clipped critic updates."""
 
-    def __init__(self, discrepancy_weight=1., kl_weight=1., layer_norm=True):
+    def __init__(self, discrepancy_weight=1., kl_weight=1., critic_clip=.01):
         super().__init__()
+        self.generator = GraphGenerator()
+        self.critic = GraphCritic()
         self.discrepancy_weight = discrepancy_weight
         self.kl_weight = kl_weight
-        self.generator = _Generator(layer_norm)
-        self.classifier = _Classifier(layer_norm)
+        self.critic_clip = critic_clip
 
-    def forward(self, batch):
-        """Generate graphs and classify both views of a PyG jet batch.
+    def forward(self, jets):
+        """Return input/generated graphs and raw critic scores (B,) for both views.
 
-        B is the number of jets; N is the largest node count in this batch.
-        Output fields:
-          inputs: (x, adjacency, mask), shaped (B,N,1), (B,N,N), (B,N).
-          node: generated features (B,N,1).
-          adjacency / adjacency_logits: generated probabilities / logits (B,N,N).
-          pair_mask: valid non-self node pairs (B,N,N), excluding padding.
-          posteriors: ((node_mean, node_log_std), (edge_mean, edge_log_std));
-                      each tensor is (B,N,10).
-          real_logits / generated_logits: normal-class logits (B,) for each view.
+        Generated node: (B,N,1); adjacency/logits: (B,N,N).
+        Each posterior is (mean, log_std), both (B,N,10).
+        Padding and self-pairs are excluded by graph['mask'/'pair_mask'].
         """
-        x, adjacency, mask = _dense_inputs(batch)
-        generated = self.generator(x, adjacency, mask)
-        return dict(
-            generated,
-            inputs=(x, adjacency, mask),
-            pair_mask=_pair_mask(mask),
-            real_logits=self.classifier(x, adjacency, mask),
-            generated_logits=self.classifier(generated['node'], generated['adjacency'], mask),
-        )
+        graph = dense_graph(jets)
+        generated = self.generator(graph)
+        return dict(graph=graph, generated=generated,
+                    real_critic=self.critic(graph['x'], graph['adjacency'], graph['mask']),
+                    generated_critic=self.critic(generated['node'], generated['adjacency'], graph['mask']))
 
-    def classify(self, batch):
-        """Return normal-class logits (B,); no generator, sampling or reconstruction."""
-        return self.classifier(*_dense_inputs(batch))
+    def score(self, jets):
+        """Higher is more anomalous: negate the critic, without running the generator."""
+        graph = dense_graph(jets)
+        return -self.critic(graph['x'], graph['adjacency'], graph['mask'])

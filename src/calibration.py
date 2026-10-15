@@ -12,8 +12,8 @@ def _sum_by_jet(values, index, count):
 def jet_structure_features(batch):
     """Normalized participation ratio and pT-weighted RMS radius per jet.
 
-    phi is already circularly centered in graph.pos. Center rapidity here,
-    so both old centered graphs and new absolute-rapidity graphs work.
+    phi is circularly centered in graph.pos; radius uses the pT-weighted
+    variance of rapidity.
     """
     index, count = batch.batch, batch.num_graphs
     pt = batch.pt.reshape(-1).clamp_min(0.0)
@@ -44,11 +44,7 @@ def fit_calibration(scores):
 
 
 def apply_calibration(scores, calibration):
-    """Fuse event-score percentiles using the mean of the two jet gate weights.
-
-    Uses frozen validation statistics, never labels, mass, or test quantiles.
-    References are CPU tensors saved in calibration.pt.
-    """
+    """Blend event-score percentiles with the two jets' mean gate weight."""
     # Use the same scalar precision as the original gate implementation.
     parameters = {name: torch.as_tensor(value) for name, value in calibration['structure'].items()}
     pr = torch.as_tensor(scores['pr'], dtype=torch.float64)

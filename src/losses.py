@@ -1,7 +1,7 @@
-"""Reconstruction, EB3, GLADC/NetGe objectives, and paper-based SDM-NAT.
+"""Reconstruction, EB3, GLADC/NetGe objectives, and paper-based SDM-ATII.
 
-Training backpropagates objective. Legacy total fields retain their meanings:
-reconstruction for EdgeConv/GLADC/NetGe, complete objective for SDM-NAT.
+Training uses objective; total is the reconstruction subtotal where returned.
+ATII has separate generator and critic objectives.
 """
 
 import torch
@@ -77,6 +77,7 @@ def cycle_errors(model, output, batch):
 
 def gladc_loss(model, batch, *, objective='full', edge_weight=1.0):
     """EdgeConv reconstruction plus the enabled cycle/contrast terms, each weighted 1."""
+    batch = model.prepare(batch)
     output = model(batch.x, batch.edge_index, batch.edge_attr)
     errors = reconstruction_errors(output, batch, edge_weight=edge_weight)
     losses = {name: value.mean() for name, value in errors.items()}
@@ -124,43 +125,48 @@ def netge_loss(output):
     return dict(terms, total=reconstruction, objective=objective)
 
 
-def sdm_nat_loss(output, *, discrepancy_weight=1., kl_weight=1.):
-    """2025 NAT: real=1, generated=0; positive discrepancy and KL penalties.
+def sdm_atii_loss(output, *, discrepancy_weight=1., kl_weight=1.):
+    """Eq. (15): two separately minimized objectives, not a joint loss.
 
     Sum node/pair/latent entries per jet, then average jets. Adjacency BCE
     includes both edge directions and non-edges, excluding padding/self-pairs.
-    KL sums both independent Gaussian branches. No loss uses event truth labels.
+    KL sums both independent Gaussian branches.
     """
-    x, adjacency, mask = output['inputs']
-    real_bce = F.binary_cross_entropy_with_logits(
-        output['real_logits'], torch.ones_like(output['real_logits']),
-    )
-    generated_bce = F.binary_cross_entropy_with_logits(
-        output['generated_logits'], torch.zeros_like(output['generated_logits']),
-    )
-    classification = real_bce + generated_bce
-
-    node_discrepancy = ((output['node'] - x).square() * mask[..., None]).sum((1, 2)).mean()
+    graph, generated = output['graph'], output['generated']
+    x, adjacency, mask = graph['x'], graph['adjacency'], graph['mask']
+    node_discrepancy = ((generated['node'] - x).square() * mask[..., None]).sum((1, 2)).mean()
     adjacency_bce = F.binary_cross_entropy_with_logits(
-        output['adjacency_logits'], adjacency, reduction='none',
+        generated['adjacency_logits'], adjacency, reduction='none',
     )
-    adjacency_discrepancy = (adjacency_bce * output['pair_mask']).sum((1, 2)).mean()
+    adjacency_discrepancy = (adjacency_bce * graph['pair_mask']).sum((1, 2)).mean()
     discrepancy = node_discrepancy + adjacency_discrepancy
 
     kl = x.new_zeros(())
-    for mean, log_std in output['posteriors']:
+    for mean, log_std in generated['posteriors']:
         entries = .5 * (mean.square() + (2 * log_std).exp() - 1 - 2 * log_std)
         kl = kl + (entries * mask[..., None]).sum((1, 2)).mean()
 
-    objective = classification + discrepancy_weight * discrepancy + kl_weight * kl
-    return dict(
-        real_bce=real_bce,
-        generated_bce=generated_bce,
-        classification=classification,
-        node_discrepancy=node_discrepancy,
-        adjacency_discrepancy=adjacency_discrepancy,
-        discrepancy=discrepancy,
-        kl=kl,
-        total=objective,
-        objective=objective,
-    )
+    real_critic = output['real_critic'].mean()
+    generated_critic = output['generated_critic'].mean()
+    generator_adversarial = -generated_critic
+    generator_objective = generator_adversarial + discrepancy_weight * discrepancy + kl_weight * kl
+    return dict(node_discrepancy=node_discrepancy, adjacency_discrepancy=adjacency_discrepancy,
+                discrepancy=discrepancy, kl=kl, generator_adversarial=generator_adversarial,
+                generator_objective=generator_objective,
+                discriminator_objective=generated_critic - real_critic,
+                real_critic=real_critic, generated_critic=generated_critic)
+
+
+def sdm_energy_loss(output, *, discrepancy_weight=1., kl_weight=.01, margin=.2, negative_weight=.1):
+    """EBGAN energy adaptation: real reconstruction plus a generated-sample hinge."""
+    node_discrepancy, edge_discrepancy = output['node_discrepancy'], output['edge_discrepancy']
+    discrepancy = node_discrepancy + edge_discrepancy
+    real_energy = output['real_energy'].mean()
+    generated_energy = output['generated_energy'].mean()
+    hinge = (margin - output['generated_energy']).relu().mean()
+    generator_objective = generated_energy + discrepancy_weight * discrepancy + kl_weight * output['kl']
+    return dict(node_discrepancy=node_discrepancy, edge_discrepancy=edge_discrepancy,
+                discrepancy=discrepancy, kl=output['kl'], generator_adversarial=generated_energy,
+                generator_objective=generator_objective,
+                discriminator_objective=real_energy + negative_weight * hinge,
+                real_energy=real_energy, generated_energy=generated_energy, hinge=hinge)
