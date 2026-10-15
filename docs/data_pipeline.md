@@ -115,6 +115,9 @@ and truth labels. Momenta are in GeV; `mJJ` is in TeV.
 This particle-derived `mJJ` is saved with the jets; KS splits and the event loader
 use the feature-table `mJJ` from step 2.
 
+For BB1, [`make_bb1_splits.py`](../scripts/make_bb1_splits.py) uses the preprocessed
+`mJJ` to save full-range and SR (`3.3 < mJJ < 3.7` TeV) evaluation indices.
+
 ## 4. Build graphs
 
 [`build_graph.py`](../scripts/build_graph.py) calls
@@ -123,7 +126,7 @@ use the feature-table `mJJ` from step 2.
 1. Recluster each jet into at most **30 exclusive-kT subjets**, `R=1`.
 2. Sort subjets by decreasing pT; use `ln(pT)` as the node feature (`x`: N × 1),
    with pT in GeV.
-3. Store `(rapidity, phi)` coordinates, centring phi on its pT-weighted circular mean.
+3. Centre `(rapidity, phi)` on their pT-weighted means (circular mean for phi).
 4. Build a **Unique-6** graph, storing both edge directions.
 5. Use `ln(theta)`, `ln(kT)`, and `ln(z)` as edge features (`edge_attr`: E × 3);
    compute `kT` with jet-normalized pT (`pT_i / sum(pT)` within each jet).
@@ -131,3 +134,19 @@ use the feature-table `mJJ` from step 2.
 Here, `theta` is the distance between subjet coordinates, `kT` combines this
 distance with the softer subjet's momentum fraction, and `z` measures momentum
 sharing. Coordinates and pT are also saved for geometry-based losses and scoring.
+
+The [ATII resolution study](atii.md#8-run-the-retained-versions) uses up to 60
+subjets, stored separately in `data/graphs60/`.
+
+## 5. KS tree-classifier features
+
+[`prepare_kitchensink.py`](../scripts/prepare_kitchensink.py) builds the baseline,
+subjettiness and EFP feature sets from the published tables, ordering jets by mass.
+Combined concatenates subjettiness and EFP features. `mJJ` selects regions, not
+classifier inputs.
+
+Features are shared across `Nsig` settings in `data/features/kitchensink/`;
+native-table split indices go in `data/splits/kitchensink/`. This path uses
+`extra_qcd_subjettiness.h5` row order and the seed-42 classifier's internal
+50/50 validation split. [`kitchensink.sh`](../scripts/kitchensink.sh) runs
+preparation and training together.
