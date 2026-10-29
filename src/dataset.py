@@ -11,12 +11,27 @@ import numpy as np
 import tables
 import torch
 from torch.utils.data import Dataset
-from torch_geometric.data import Data
+from torch_geometric.data import Batch, Data
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import to_dense_batch
 
 
 PACKED_NODES, PACKED_EDGES = 30, 318
+
+
+def combine_jets(jets, *, positions=False):
+    """One batch with all leading jets followed by matching subleading jets."""
+    leading, subleading = jets
+    combined = Batch(
+        x=torch.cat([leading.x, subleading.x]),
+        edge_index=torch.cat([leading.edge_index, subleading.edge_index + leading.num_nodes], dim=1),
+        edge_attr=torch.cat([leading.edge_attr, subleading.edge_attr]),
+        batch=torch.cat([leading.batch, subleading.batch + leading.num_graphs]),
+        ptr=torch.cat([leading.ptr, subleading.ptr[1:] + leading.num_nodes]),
+    )
+    if positions:
+        combined.pos = torch.cat([leading.pos, subleading.pos])
+    return combined
 
 
 def _read_jet(root, index):

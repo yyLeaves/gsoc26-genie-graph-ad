@@ -1,7 +1,7 @@
 """Paper-based SDM-ATII: variational graph generation and a Wasserstein critic.
 
 Inputs: ln(pT) nodes and binary adjacency, without physical edge features.
-Implementation choices and adaptations are recorded in docs/atii.md.
+Implementation choices and adaptations are recorded in docs/sdm.md.
 """
 
 import torch

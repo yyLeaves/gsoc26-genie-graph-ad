@@ -20,8 +20,8 @@ def main():
     parser.add_argument('--baseline-checkpoint', type=Path, required=True, help='baseline gate branch')
     parser.add_argument('--reg-checkpoint', type=Path, required=True, help='second gate branch; may use a different architecture')
     parser.add_argument('--split-file', type=Path, required=True)
-    parser.add_argument('--sample', choices=['SR', 'reference'], required=True,
-                        help='validation subset; reference = CWoLa SB or IAD extra QCD')
+    parser.add_argument('--sample', choices=['SR', 'reference'], default='reference',
+                        help='validation subset; reference (default) = CWoLa SB or IAD extra QCD')
     parser.add_argument('--graph-dir', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--batch-size', type=int, default=128, help='events per batch')

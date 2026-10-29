@@ -3,11 +3,13 @@
 Does adding GLADC's training tasks improve our strongest NetGe-Jet backbone?
 We compare reconstruction-only training with reconstruction + cycle + contrastive.
 
+Run on SB:
+
 ```bash
-MODEL=netge RUN_DIR=runs/netge_gladc_sr bash scripts/train.sh --netge-variant max_bilinear --objective full
+MODEL=netge RUN_DIR=runs/netge_gladc_sb bash scripts/train.sh --netge-variant max_bilinear --objective full
 ```
 
-[Default settings](results.md#default-settings-for-graph-models) ·
+[Reported SR settings](results.md#reported-sr-settings) ·
 [Results overview](results.md#4-netge-jet-max-message--bilinear-decoder) ·
 [NetGe architecture variations](netge.md)
 
@@ -34,7 +36,7 @@ this version **NetGe–GLADC**; inference still uses the reconstruction score ab
 
 ## 3. Results
 
-Separate training for each signal, `Nsig=1000`, seed 42. Entries are
+Separate SR training for each signal, `Nsig=1000`, seed 42. Entries are
 **AUC / maxSIC** at epoch 50.
 
 | Model | LHCO | WR | YY′ | Z′ | YHH |

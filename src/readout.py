@@ -2,10 +2,11 @@
 
 Each member is a HistGradientBoostingClassifier trained to separate SR (1) from SB (0) events,
 with balanced class weights and internal 50/50 early-stopping validation. The anomaly score is the
-mean member probability. Member m of Kitchen Sink run r uses random_state 1001 + 50 r + m.
+mean member probability. Member m of run r uses random_state 1 + Nsig + 50 r + m.
 """
 
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
 
 import joblib
@@ -25,8 +26,8 @@ MEMBERS = 50
 _SHARED = {}
 
 
-def member_seed(run, member):
-    return 1001 + MEMBERS*run + member
+def member_seed(run, member, n_signal=1000):
+    return 1 + n_signal + MEMBERS*run + member
 
 
 def class_weights(labels):
@@ -34,9 +35,9 @@ def class_weights(labels):
     return np.where(labels == 1, len(labels)/labels.sum() - 1, 1.)
 
 
-def fit_member(features, labels, *, run=0, member=0, threads=2):
+def fit_member(features, labels, *, run=0, member=0, n_signal=1000, threads=2):
     with threadpool_limits(limits=threads):
-        model = HistGradientBoostingClassifier(**KS_CLASSIFIER, random_state=member_seed(run, member))
+        model = HistGradientBoostingClassifier(**KS_CLASSIFIER, random_state=member_seed(run, member, n_signal))
         return model.fit(features, labels, sample_weight=class_weights(labels))
 
 
@@ -45,25 +46,25 @@ def _initialize(features, labels, test, model_dir):
 
 
 def _member_scores(item):
-    run, member = item
-    model = fit_member(_SHARED['features'], _SHARED['labels'], run=run, member=member)
+    run, member, n_signal = item
+    model = fit_member(_SHARED['features'], _SHARED['labels'], run=run, member=member, n_signal=n_signal)
     if _SHARED['model_dir'] is not None:
         joblib.dump(model, Path(_SHARED['model_dir'])/f'member{member:02}.joblib')
     with threadpool_limits(limits=2):
         return model.predict_proba(_SHARED['test'])[:, 1]
 
 
-def ensemble_scores(features, labels, test, *, run=0, workers=24, model_dir=None):
+def ensemble_scores(features, labels, test, *, run=0, n_signal=1000, workers=6, model_dir=None):
     """Train the 50 members on (features, SR/SB labels); return their mean probability on test.
 
     With model_dir, every fitted member is saved there for later inference (see predict).
     """
     if model_dir is not None:
         Path(model_dir).mkdir(parents=True, exist_ok=True)
-    with ProcessPoolExecutor(max_workers=workers, initializer=_initialize,
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context('spawn'), initializer=_initialize,
                              initargs=(features, labels, test, model_dir)) as executor:
         total = 0.
-        for scores in executor.map(_member_scores, [(run, member) for member in range(MEMBERS)]):
+        for scores in executor.map(_member_scores, [(run, member, n_signal) for member in range(MEMBERS)]):
             total = total + scores/MEMBERS
     return total
 

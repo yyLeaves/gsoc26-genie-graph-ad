@@ -3,12 +3,22 @@
 import torch
 
 from .calibration import jet_structure_features
+from .dataset import combine_jets
 from .losses import cycle_errors, netge_errors, reconstruction_errors
-from .models import GLADC, NetGe, NetGeJet, NetGeMaxBilinear, SDMATII, SDMEnergy
+from .models import GLADC, NetGe, NetGeJet, NetGeMaxBilinear, SDMATII, SDMEnergy, SDMATI, SDMNAT
 
 
 def scoring_options(model_name, *, variant='original'):
     """Default score and available alternatives for each model."""
+    if model_name == 'sdm_ati':
+        if variant == 'original':
+            return 'critic', ('total', 'critic')
+        return 'energy', ('total', 'energy', 'geometric')
+    if model_name == 'sdm_nat':
+        if variant == 'control':
+            return 'reconstruction', ('total', 'reconstruction')
+        default = 'full_objective' if variant == 'paired' else 'classifier'
+        return default, ('total', 'classifier', 'full_objective')
     if model_name == 'sdm_atii':
         return 'critic', ('total', 'critic')
     if model_name == 'sdm_energy':
@@ -31,6 +41,10 @@ def scoring_options(model_name, *, variant='original'):
 
 
 def _jet_scores(model, jets, edge_weight, score=None):
+    if isinstance(model, SDMATI):
+        name = 'critic' if model.variant == 'original' else 'energy'
+        value = model.score(jets)
+        return {name: value, 'total': value}
     if isinstance(model, SDMEnergy):
         if score in (None, 'total'):
             score = 'generator_objective'
@@ -77,12 +91,19 @@ def score_events(model, batch, *, edge_weight=1.0, score=None):
     Call model.eval() first. Each score vector follows the event order in
     batch['jets'], matching batch['source'] and batch['row'].
     """
+    if isinstance(model, SDMNAT):
+        result = model.event_scores(combine_jets(batch['jets']))
+        default = scoring_options('sdm_nat', variant=model.variant)[0]
+        result['total'] = result[default if score in (None, 'total') else score]
+        return result
     errors = []
     for jets in batch['jets']:
         errors.append(_jet_scores(model, jets, edge_weight, score))
     leading, subleading = errors
     # Match the baseline's float64 event-sum accumulation.
     result = {name: leading[name].double() + subleading[name].double() for name in leading}
+    if isinstance(model, SDMATI) and model.variant != 'original':
+        result['geometric'] = 2 * leading['energy'].double().sqrt() * subleading['energy'].double().sqrt()
     if isinstance(model, NetGeMaxBilinear):
         first, second = leading['reconstruction'].double(), subleading['reconstruction'].double()
         result['jet_reconstruction'] = torch.stack([first, second], dim=1)

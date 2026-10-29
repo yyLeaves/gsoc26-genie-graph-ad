@@ -82,8 +82,10 @@ a classifier input.
 The classifier trains on region labels (`weak_label`: SR=1, SB=0), not on
 signal/background labels. Evaluation uses `truth`: background=0, signal=1.
 
-Our autoencoders reuse these splits but train on one sample: `SAMPLE=SR`
-(default) or `SAMPLE=reference` (SB). They learn reconstruction, not SR/SB classification.
+Our autoencoders train and validate on SB by default (`SAMPLE=reference`);
+`scripts/train.sh` also accepts `SAMPLE=SR`. Test evaluation uses SR.
+For [AE features + tree readout](ae_readout.md), freeze the SB-trained AE,
+then train the trees on SR/SB region labels and evaluate in SR.
 
 Default CWoLa splits (`Nsig=1000`), in events:
 
@@ -135,7 +137,7 @@ Here, `theta` is the distance between subjet coordinates, `kT` combines this
 distance with the softer subjet's momentum fraction, and `z` measures momentum
 sharing. Coordinates and pT are also saved for geometry-based losses and scoring.
 
-The [ATII resolution study](atii.md#8-run-the-retained-versions) uses up to 60
+The [ATII resolution study](sdm.md#29-run-the-retained-versions) uses up to 60
 subjets, stored separately in `data/graphs60/`.
 
 ## 5. KS tree-classifier features
@@ -150,3 +152,7 @@ native-table split indices go in `data/splits/kitchensink/`. This path uses
 `extra_qcd_subjettiness.h5` row order and the seed-42 classifier's internal
 50/50 validation split. [`kitchensink.sh`](../scripts/kitchensink.sh) runs
 preparation and training together.
+
+`ENSEMBLE=1 RUNS=10` trains 50 classifiers per run with new signal injection and
+pool shuffles each run. Average member probabilities, then report the median
+AUROC and maxSIC across runs.

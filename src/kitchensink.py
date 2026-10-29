@@ -4,6 +4,7 @@ Feature definitions: https://github.com/lang-lukas/KitchenSink
 """
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,6 +26,16 @@ EFP_TABLES = {
     'extra_qcd': 'lhco/extra_qcd_efps.h5',
     **{name: f'kitchensink/{name}/{name}_efps.h5' for name in SIGNALS[1:]},
 }
+
+
+def pool_order(signal, events, split_dir=Path('data/splits/kitchensink')):
+    """Index graph events in KS run-0 pool order before the trees split them internally."""
+    with np.load(split_dir/signal/'nsig1000/events.npz') as split:
+        expected = split['pool'].copy()
+    expected['source'][expected['source'] >= 2] = 2
+    keys = events[['source', 'row']]
+    order = np.argsort(keys, order=('source', 'row'))
+    return order[np.searchsorted(keys[order], expected[['source', 'row']])]
 
 
 def ordered_features(raw, *, background=False):
@@ -93,9 +104,8 @@ def prepare_features(data_dir, feature_dir, sources, feature_sets):
         print(f'{source}: features ready', flush=True)
 
 
-def prepare_splits(feature_dir, split_dir, signals, n_signals):
-    """Keep native row identities; match the seed-42 classifier's internal split."""
-    sources = tuple(dict.fromkeys(('LHCO', 'extra_qcd', *signals)))
+def feature_events(feature_dir, sources):
+    """Event identities, masses and labels in each prepared feature table's row order."""
     banks = {}
     for source in sources:
         frame = pd.read_hdf(feature_dir / source / 'baseline.h5')
@@ -103,6 +113,13 @@ def prepare_splits(feature_dir, split_dir, signals, n_signals):
         events['source'], events['row'] = SOURCES.index(source), np.arange(len(frame))
         events['mjj'], events['truth'], events['weak_label'] = frame.mjj, frame.label, -1
         banks[source] = events
+    return banks
+
+
+def prepare_splits(feature_dir, split_dir, signals, n_signals):
+    """Keep native row identities; match the seed-42 classifier's internal split."""
+    sources = tuple(dict.fromkeys(('LHCO', 'extra_qcd', *signals)))
+    banks = feature_events(feature_dir, sources)
     background = banks['LHCO'][banks['LHCO']['truth'] == 0]
     validation_seed = np.random.RandomState(42).randint(np.iinfo(np.uint32).max, dtype='u8')
     for n_signal in n_signals:

@@ -3,27 +3,19 @@
 from contextlib import nullcontext
 
 import torch
-from torch_geometric.data import Batch
 
+from .dataset import combine_jets as _combine_jets
 from .losses import eb3_terms, gladc_loss, netge_loss, reconstruction_loss, sdm_atii_loss, sdm_energy_loss
-from .models import GLADC, NetGe, NetGeJet, SDMATII, SDMEnergy
+from .models import GLADC, NetGe, NetGeJet, SDMATII, SDMEnergy, SDMATI, SDMNAT
 from .models.netge import dense_nodes, log_fractions
 
 
-def _combine_jets(jets):
-    """Put both event slots in one jet batch, sharing the contrastive negative pool."""
-    leading, subleading = jets
-    return Batch(
-        x=torch.cat([leading.x, subleading.x]),
-        edge_index=torch.cat([leading.edge_index, subleading.edge_index + leading.num_nodes], dim=1),
-        edge_attr=torch.cat([leading.edge_attr, subleading.edge_attr]),
-        batch=torch.cat([leading.batch, subleading.batch + leading.num_graphs]),
-        ptr=torch.cat([leading.ptr, subleading.ptr[1:] + leading.num_nodes]),
-    )
-
-
 def _batch_losses(model, batch, device, edge_weight, reg_weight=0.0, objective='full'):
-    """Return scalar loss terms and objectives; ATII keeps G and D separate."""
+    """Return scalar losses; adversarial models keep G and D objectives separate."""
+    if isinstance(model, (SDMATI, SDMNAT)):
+        jets = _combine_jets([jet.to(device) for jet in batch['jets']],
+                             positions=isinstance(model, SDMATI) and model.dense)
+        return model(jets)
     if isinstance(model, SDMEnergy):
         jets = _combine_jets([jet.to(device) for jet in batch['jets']])
         output = model(jets)
@@ -140,7 +132,10 @@ def train_epoch(model, loader, optimizer, device, *, edge_weight=1.0, reg_weight
     totals = {}
     n_events = 0
     for batch in loader:
-        if isinstance(model, SDMATII):
+        if isinstance(model, SDMATI):
+            jets = _combine_jets([jet.to(device) for jet in batch['jets']], positions=model.dense)
+            losses = model.train_batch(model.graph(jets), optimizer)
+        elif isinstance(model, SDMATII):
             losses = _train_atii_batch(model, batch, optimizer, device)
         elif isinstance(model, SDMEnergy):
             losses = _train_energy_batch(model, batch, optimizer, device)
@@ -152,7 +147,7 @@ def train_epoch(model, loader, optimizer, device, *, edge_weight=1.0, reg_weight
                 torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optimizer.step()
         # Keep the final scheduled LR; do not advance past the last update.
-        if scheduler is not None and scheduler.last_epoch + 1 < scheduler.total_steps:
+        if isinstance(scheduler, torch.optim.lr_scheduler.OneCycleLR) and scheduler.last_epoch + 1 < scheduler.total_steps:
             scheduler.step()
         count = batch['jets'][0].num_graphs
         n_events += count
@@ -167,7 +162,7 @@ def validate(model, loader, device, *, edge_weight=1.0, reg_weight=0.0, objectiv
     model.eval()
     totals = {}
     n_events = 0
-    preserve_rng = isinstance(model, (NetGe, NetGeJet, GLADC, SDMATII, SDMEnergy))
+    preserve_rng = isinstance(model, (NetGe, NetGeJet, GLADC, SDMATII, SDMEnergy, SDMATI, SDMNAT))
     device = torch.device(device)
     cuda_devices = []
     if device.type == 'cuda':
@@ -176,7 +171,7 @@ def validate(model, loader, device, *, edge_weight=1.0, reg_weight=0.0, objectiv
     rng_context = torch.random.fork_rng(devices=cuda_devices) if preserve_rng else nullcontext()
     with rng_context:
         if preserve_rng:
-            validation_seed = 42 if isinstance(model, SDMEnergy) else 246
+            validation_seed = 42 if isinstance(model, (SDMEnergy, SDMATI, SDMNAT)) else 246
             torch.random.default_generator.manual_seed(validation_seed)
             if cuda_devices:
                 torch.cuda.default_generators[cuda_devices[0]].manual_seed(validation_seed)

@@ -1,7 +1,7 @@
 """ATII-conditioned generation with an EBGAN energy critic.
 
 Reuse baseline EdgeConv or max-message/bilinear NetGe. Connectivity stays fixed;
-both networks see ln(pT) nodes and three physical edge features. See docs/atii.md.
+both networks see ln(pT) nodes and three physical edge features. See docs/sdm.md.
 """
 
 from copy import deepcopy

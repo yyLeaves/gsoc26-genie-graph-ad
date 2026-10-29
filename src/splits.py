@@ -42,7 +42,14 @@ def signal_region(events):
     return (events['mjj'] > 3.3) & (events['mjj'] < 3.7)
 
 
-def make_samples(background, signal, extra_background, *, mode='CWoLa', n_signal=1000):
+def mixture_seed(run, n_signal=1000):
+    seed = 1 + n_signal
+    for step in range(1, run + 1):
+        seed += step + n_signal
+    return seed
+
+
+def make_samples(background, signal, extra_background, *, mode='CWoLa', n_signal=1000, run=0):
     """Inject n_signal BEFORE the mass cuts and the 120000-event SR cap.
     Weak labels: SR=1, reference=0; truth: background=0, signal=1.
     Test events have weak_label=-1.
@@ -51,9 +58,9 @@ def make_samples(background, signal, extra_background, *, mode='CWoLa', n_signal
     assert n_signal in SIGNAL_COUNTS, f'n_signal must be one of {SIGNAL_COUNTS}'
 
     signal = signal.copy()
-    np.random.RandomState(934 + n_signal).shuffle(signal)
+    np.random.RandomState(934 + n_signal + run).shuffle(signal)
     mixture = np.concatenate([background, signal[:n_signal]])
-    rng = np.random.RandomState(1 + n_signal)
+    rng = np.random.RandomState(mixture_seed(run, n_signal))
     rng.shuffle(mixture)
 
     in_sr = signal_region(mixture)

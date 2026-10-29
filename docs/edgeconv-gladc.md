@@ -3,15 +3,15 @@
 We added GLADC's cycle and contrastive tasks to our EdgeConv baseline, then
 tested neighbor messages, feature standardization and relative momentum inputs.
 
-[Default settings](results.md#default-settings-for-graph-models) ·
+[Reported SR settings](results.md#reported-sr-settings) ·
 [Results overview](results.md#3-edgeconvgladc-and-variations)
 
-Tables show **AUC / maxSIC** at epoch 50.
+Tables show **AUC / maxSIC** at epoch 50 for SR-trained models.
 
-Run one variant (`original`, `neighbor`, `standardized`, `fraction`):
+Run one variant on SB (`original`, `neighbor`, `standardized`, `fraction`):
 
 ```bash
-MODEL=gladc RUN_DIR=runs/gladc_fraction_sr bash scripts/train.sh --gladc-variant fraction
+MODEL=gladc RUN_DIR=runs/gladc_fraction_sb bash scripts/train.sh --gladc-variant fraction
 ```
 
 ## 1. Add cycle and contrastive training

@@ -41,7 +41,8 @@ def main():
     variant_scores = ()
     if args.checkpoint:
         model_name = settings['model']
-        _, available = scoring_options(model_name, variant=settings.get('netge_variant', 'original'))
+        variant = settings.get('netge_variant', settings.get('sdm_variant', 'original'))
+        _, available = scoring_options(model_name, variant=variant)
         score = settings['score'] if args.score in (None, 'total') else args.score
         if score not in available:
             parser.error(f'--score for {model_name} must be one of: {", ".join(available)}')
@@ -52,9 +53,12 @@ def main():
         epoch = checkpoint['epoch']
         print(f'Scoring {len(dataset):,} {args.split} events at epoch {epoch}', flush=True)
         result = score_loader(model, loader, args.device, edge_weight=edge_weight, score=score)
-        if model_name in ('gladc', 'netge', 'sdm_atii', 'sdm_energy'):
+        if model_name != 'edgeconv':
             variant_scores = available
         provenance = dict(checkpoint=str(args.checkpoint.resolve()), edge_weight=edge_weight, epoch=epoch)
+        if model_name in ('sdm_ati', 'sdm_nat'):
+            provenance.update(model=model_name, variant=variant, max_subjets=model.max_subjets,
+                              training_sample=settings['sample'], score_definition=score)
         if model_name == 'netge' and settings.get('netge_variant') == 'max_bilinear':
             provenance.update(model='netge', netge_variant='max_bilinear',
                               per_jet_score='standardized node MSE + physical-edge MSE',

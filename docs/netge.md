@@ -3,10 +3,11 @@
 We adapted NetGe from node/adjacency reconstruction to jet-feature reconstruction,
 then tested input coordinates, edge decoders, message aggregation and event scoring.
 
-[Default settings](results.md#default-settings-for-graph-models) ·
+[Reported SR settings](results.md#reported-sr-settings) ·
 [Results overview](results.md#4-netge-jet-max-message--bilinear-decoder)
 
-Tables show **AUC / maxSIC** at epoch 50, with `Nsig=1000` and 30-subjet graphs.
+Tables show **AUC / maxSIC** at epoch 50, with SR training, `Nsig=1000`
+and 30-subjet graphs.
 The early experiments train one LHCO model and test it on all signals. The final
 comparison trains a separate model for each signal, using seed 42.
 
@@ -104,7 +105,7 @@ These seed-123 controls start from the standardized mean/MLP model above
 ## 5. Final per-signal results and event scoring
 
 Train the retained `max_bilinear` model separately for each signal under the
-[default settings](results.md#default-settings-for-graph-models), seed **42**.
+[reported SR settings](results.md#reported-sr-settings), seed **42**.
 Use node + physical-edge MSE only.
 
 For jet errors `s0` and `s1`, compare their sum with `2 * sqrt(s0 * s1)`.

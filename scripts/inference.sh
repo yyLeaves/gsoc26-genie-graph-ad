@@ -2,7 +2,7 @@
 set -e
 
 split_file="${SPLIT_FILE:-data/splits/CWoLa_LHCO_nsig1000.npz}"
-run_dir="${RUN_DIR:-runs/edgeconv_sr}"  # trained model's run folder
+run_dir="${RUN_DIR:-runs/edgeconv_sb}"  # trained model's run folder
 device="${DEVICE:-cpu}"                # cpu, cuda:0, ...
 calibration="${CALIBRATION:-}"         # optional calibration.pt for gated scoring
 

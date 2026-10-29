@@ -1,4 +1,4 @@
-"""Train and evaluate the single-seed KS classifier on prepared native-table splits."""
+"""Train a single KS classifier or repeated 50-model ensembles on native-table features."""
 
 import argparse
 import gc
@@ -14,8 +14,9 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from threadpoolctl import threadpool_limits
 
 from src.metrics import score_metrics
-from src.kitchensink import FEATURE_SETS, SIGNALS, SOURCES
-from src.splits import SIGNAL_COUNTS
+from src.kitchensink import FEATURE_SETS, SIGNALS, SOURCES, feature_events
+from src.readout import KS_CLASSIFIER, MEMBERS, ensemble_scores
+from src.splits import SIGNAL_COUNTS, make_samples, mixture_seed
 
 
 SEED = 42
@@ -115,6 +116,35 @@ def evaluate(folder, checkpoint, events_file, model, config, banks, events):
     return result
 
 
+def train_ensemble(folder, signal, n_signal, banks, event_banks, *, runs, workers):
+    """Rebuild each KS run's mixture, average 50 probabilities, then report median metrics."""
+    background = event_banks['LHCO']
+    background = background[background['truth'] == 0]
+    signal_events = event_banks[signal]
+    signal_events = signal_events[signal_events['truth'] == 1]
+    results = []
+    for run in range(runs):
+        pool, test = make_samples(background, signal_events, event_banks['extra_qcd'],
+                                  n_signal=n_signal, run=run)
+        output = folder/f'run{run}'
+        output.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(output/'events.npz', pool=pool, test=test)
+        scores = ensemble_scores(assemble(pool, banks), pool['weak_label'], assemble(test, banks),
+                                 run=run, n_signal=n_signal, workers=workers, model_dir=output/'readout')
+        np.savez_compressed(output/'scores.npz', score=scores)
+        metrics = dict(score_metrics(scores, test['truth']), run=run,
+                       mixture_seed=mixture_seed(run, n_signal), signal_seed=934+n_signal+run)
+        (output/'metrics.json').write_text(json.dumps(metrics, indent=2)+'\n')
+        results.append(metrics)
+        print(signal, 'run', run, f'AUC {metrics["auc"]:.5f} maxSIC(KS) {metrics["max_sic_ks"]:.3f}', flush=True)
+    median = {name: float(np.median([result[name] for result in results]))
+              for name in ('auc', 'max_sic', 'max_sic_ks')}
+    summary = dict(signal=signal, n_signal=n_signal, runs=runs, members=MEMBERS,
+                   classifier=KS_CLASSIFIER, median=median, per_run=results)
+    (folder/'summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+    print(signal, 'median', median, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--feature-sets', nargs='+', choices=FEATURE_SETS, default=list(FEATURE_SETS))
@@ -123,17 +153,27 @@ def main():
     parser.add_argument('--feature-dir', type=Path, default=Path('data/features/kitchensink'))
     parser.add_argument('--split-dir', type=Path,
                         default=Path('data/splits/kitchensink'))
-    parser.add_argument('--output-dir', type=Path, default=Path('runs/kitchensink_cwola/seed42'))
+    parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--threads', type=int, default=8)
+    parser.add_argument('--ensemble', action='store_true', help='average 50 classifiers per run')
+    parser.add_argument('--runs', type=int, default=1, help='ensemble repetitions starting at run 0')
     args = parser.parse_args()
+    if args.output_dir is None:
+        args.output_dir = Path('runs/kitchensink_cwola')/('ensemble' if args.ensemble else 'seed42')
+    sources = tuple(dict.fromkeys(('LHCO', 'extra_qcd', *args.signals)))
+    event_banks = feature_events(args.feature_dir, sources) if args.ensemble else None
 
     with threadpool_limits(limits=args.threads):
         for feature in args.feature_sets:
-            sources = tuple(dict.fromkeys(('LHCO', 'extra_qcd', *args.signals)))
             columns, banks = load_features(args.feature_dir, feature, sources)
             zero_model = None
             for n_signal in args.n_signal:
                 for signal in args.signals:
+                    if args.ensemble:
+                        folder = args.output_dir/feature/signal/f'nsig{n_signal:04d}'
+                        train_ensemble(folder, signal, n_signal, banks, event_banks,
+                                       runs=args.runs, workers=max(1, args.threads//2))
+                        continue
                     events_file = args.split_dir / signal / f'nsig{n_signal:04d}/events.npz'
                     with np.load(events_file) as loaded:
                         events = dict(loaded)
@@ -151,8 +191,8 @@ def main():
                             zero_model, zero_config = model, config
                     evaluate(result_dir, model_dir / 'classifier.joblib', events_file,
                              model, config, banks, events)
-                    del events
-            del banks, model, zero_model
+                    del events, model
+            del banks, zero_model
             gc.collect()
 
 
